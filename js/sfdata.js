@@ -1,14 +1,23 @@
 /**
  * SF Open Data API integration.
  * Fetches single-family home addresses within a geographic area.
- *
- * Strategy:
- * 1. Query the Land Use dataset with intersects() for residential parcels.
- * 2. Use the returned block/lot identifiers to query the Assessor dataset for addresses.
- * 3. Filter for single-family homes via use_code='SRES'.
- * 4. Fallback: query the Assessor dataset directly if the Land Use approach fails.
  */
 const SFData = (() => {
+
+    // ── On-page debug helper (no console needed) ──
+    let _debugEl = null;
+    function dbg(msg) {
+        if (!_debugEl) {
+            _debugEl = document.createElement('pre');
+            _debugEl.id = 'api-debug';
+            _debugEl.style.cssText = 'background:#111;color:#0f0;font-size:11px;' +
+                'padding:10px;margin:10px;max-height:300px;overflow:auto;' +
+                'white-space:pre-wrap;word-break:break-all;border-radius:6px;';
+            const main = document.querySelector('main');
+            if (main) main.appendChild(_debugEl);
+        }
+        _debugEl.textContent += msg + '\n';
+    }
 
     /** Build the assessor use-code filter clause. */
     function buildUseCodeFilter() {
@@ -27,13 +36,18 @@ const SFData = (() => {
      * Main entry: fetch single-family home addresses within the given bounds.
      */
     async function getAddressesInArea(bounds, limit, onStatus) {
+        // Reset debug panel
+        if (_debugEl) _debugEl.textContent = '';
+        dbg('=== SEARCH DEBUG ===');
+        dbg('Bounds: ' + JSON.stringify(bounds));
+
         onStatus('Searching for residential parcels in selected area...');
 
         try {
             const addresses = await fetchViaLandUse(bounds, limit, onStatus);
             if (addresses.length > 0) return addresses;
         } catch (err) {
-            console.warn('Land Use query failed, trying fallback:', err.message);
+            dbg('Strategy 1 FAILED: ' + err.message);
         }
 
         try {
@@ -41,7 +55,7 @@ const SFData = (() => {
             const addresses = await fetchViaParcels(bounds, limit, onStatus);
             if (addresses.length > 0) return addresses;
         } catch (err) {
-            console.warn('Parcels query failed, trying assessor fallback:', err.message);
+            dbg('Strategy 2 FAILED: ' + err.message);
         }
 
         onStatus('Trying assessor dataset directly...');
@@ -49,8 +63,7 @@ const SFData = (() => {
     }
 
     /**
-     * Strategy 1: Query Land Use dataset for residential parcels using
-     * intersects() (works with polygon geometry), then look up addresses.
+     * Strategy 1: Land Use dataset with intersects().
      */
     async function fetchViaLandUse(bounds, limit, onStatus) {
         const poly = boundsToWKT(bounds);
@@ -62,10 +75,10 @@ const SFData = (() => {
             `&$select=blklot,landuse`;
 
         onStatus('Querying land use data...');
-        console.log('[DEBUG] Land Use URL:', url);
+        dbg('Strategy 1 URL: ' + url);
         const landUseData = await fetchJSON(url);
-        console.log('[DEBUG] Land Use result count:', landUseData ? landUseData.length : 0);
-        if (landUseData && landUseData[0]) console.log('[DEBUG] Land Use sample:', JSON.stringify(landUseData[0]));
+        dbg('Strategy 1 rows: ' + (landUseData ? landUseData.length : 0));
+        if (landUseData && landUseData[0]) dbg('Strategy 1 sample: ' + JSON.stringify(landUseData[0]));
 
         if (!landUseData || landUseData.length === 0) return [];
 
@@ -80,7 +93,7 @@ const SFData = (() => {
     }
 
     /**
-     * Strategy 2: Query Parcels dataset using intersects(), then look up in Assessor.
+     * Strategy 2: Parcels dataset with intersects().
      */
     async function fetchViaParcels(bounds, limit, onStatus) {
         const poly = boundsToWKT(bounds);
@@ -91,10 +104,13 @@ const SFData = (() => {
             `&$limit=${limit}` +
             `&$select=blklot,mapblklot,block_num,lot_num`;
 
+        dbg('Strategy 2 URL: ' + url);
         const parcelsData = await fetchJSON(url);
+        dbg('Strategy 2 rows: ' + (parcelsData ? (parcelsData.features || parcelsData).length : 0));
         if (!parcelsData || parcelsData.length === 0) return [];
 
         const features = parcelsData.features || parcelsData;
+        if (features[0]) dbg('Strategy 2 sample: ' + JSON.stringify(features[0]).slice(0, 300));
         const blockLots = features.map(f => {
             const props = f.properties || f;
             return props.blklot || props.mapblklot ||
@@ -108,23 +124,27 @@ const SFData = (() => {
     }
 
     /**
-     * Strategy 3: Query Assessor dataset directly by use_code.
+     * Strategy 3: Query Assessor directly.
+     * First probes for real field names.
      */
     async function fetchViaAssessorDirect(bounds, limit, onStatus) {
-        // DEBUG: fetch 1 unfiltered row to discover real field names and values
+        // Probe: fetch 1 unfiltered row to see real field names + values
         try {
-            const debugUrl = Config.sfdata.assessorEndpoint + '?$limit=1';
-            const debugData = await fetchJSON(debugUrl);
-            if (debugData && debugData[0]) {
-                console.log('[DEBUG] Assessor fields:', Object.keys(debugData[0]));
-                console.log('[DEBUG] Assessor sample row:', JSON.stringify(debugData[0], null, 2));
+            const probeUrl = Config.sfdata.assessorEndpoint + '?$limit=1';
+            dbg('Assessor probe URL: ' + probeUrl);
+            const probeData = await fetchJSON(probeUrl);
+            if (probeData && probeData[0]) {
+                dbg('Assessor FIELDS: ' + Object.keys(probeData[0]).join(', '));
+                dbg('Assessor SAMPLE: ' + JSON.stringify(probeData[0]).slice(0, 600));
+            } else {
+                dbg('Assessor probe returned empty');
             }
         } catch (e) {
-            console.warn('[DEBUG] Assessor probe failed:', e.message);
+            dbg('Assessor probe FAILED: ' + e.message);
         }
 
         const useFilter = buildUseCodeFilter();
-        console.log('[DEBUG] useFilter:', useFilter);
+        dbg('useFilter: ' + useFilter);
 
         for (const fy of Config.sfdata.fiscalYears) {
             const where = `(${useFilter}) AND closed_roll_year='${fy}'`;
@@ -135,16 +155,18 @@ const SFData = (() => {
                 `&$order=property_location`;
 
             onStatus(`Querying assessor data for single-family homes (FY ${fy})...`);
+            dbg('Strategy 3 FY ' + fy + ' URL: ' + url);
 
             try {
                 const data = await fetchJSON(url);
+                dbg('Strategy 3 FY ' + fy + ' rows: ' + (data ? data.length : 0));
                 if (data && data.length > 0) return deduplicateAndParse(data);
             } catch (err) {
-                console.warn(`Assessor query for FY ${fy} failed:`, err.message);
+                dbg('Strategy 3 FY ' + fy + ' FAILED: ' + err.message);
             }
         }
 
-        // Fallback: no fiscal year filter
+        // Fallback: no fiscal year
         const fallbackUrl = Config.sfdata.assessorEndpoint +
             `?$where=${encodeURIComponent(`(${useFilter})`)}` +
             `&$limit=${limit}` +
@@ -152,9 +174,16 @@ const SFData = (() => {
             `&$order=closed_roll_year DESC,property_location`;
 
         onStatus('Retrying with broader query...');
-        const fallbackData = await fetchJSON(fallbackUrl);
-        if (!fallbackData || fallbackData.length === 0) return [];
-        return deduplicateAndParse(fallbackData);
+        dbg('Strategy 3 fallback URL: ' + fallbackUrl);
+        try {
+            const fallbackData = await fetchJSON(fallbackUrl);
+            dbg('Strategy 3 fallback rows: ' + (fallbackData ? fallbackData.length : 0));
+            if (!fallbackData || fallbackData.length === 0) return [];
+            return deduplicateAndParse(fallbackData);
+        } catch (err) {
+            dbg('Strategy 3 fallback FAILED: ' + err.message);
+            return [];
+        }
     }
 
     /**
@@ -193,7 +222,7 @@ const SFData = (() => {
                         break;
                     }
                 } catch (err) {
-                    console.warn(`Batch ${i} FY ${fy} failed:`, err.message);
+                    dbg(`Batch ${i} FY ${fy} FAILED: ${err.message}`);
                 }
             }
 
@@ -207,17 +236,15 @@ const SFData = (() => {
                     const data = await fetchJSON(url);
                     if (data && data.length > 0) allResults.push(...data);
                 } catch (err) {
-                    console.warn(`Batch ${i} fallback failed:`, err.message);
+                    dbg(`Batch ${i} fallback FAILED: ${err.message}`);
                 }
             }
         }
 
+        dbg('Assessor lookup total results: ' + allResults.length);
         return deduplicateAndParse(allResults);
     }
 
-    /**
-     * Deduplicate assessor records and parse addresses.
-     */
     function deduplicateAndParse(records) {
         const seen = new Set();
         const results = [];
@@ -247,9 +274,6 @@ const SFData = (() => {
         return results;
     }
 
-    /**
-     * Parse a raw address like "2971 CALIFORNIA ST" into components.
-     */
     function parseAddress(raw) {
         if (!raw) return null;
 
@@ -299,10 +323,6 @@ const SFData = (() => {
         return raw.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
     }
 
-    /**
-     * Convert bounds to a WKT MULTIPOLYGON string for intersects().
-     * WKT uses longitude-latitude order.
-     */
     function boundsToWKT(bounds) {
         const { north, south, east, west } = bounds;
         return `MULTIPOLYGON(((${west} ${north}, ${east} ${north}, ${east} ${south}, ${west} ${south}, ${west} ${north})))`;
@@ -315,7 +335,7 @@ const SFData = (() => {
 
         if (!response.ok) {
             const body = await response.text().catch(() => '');
-            console.error(`API error ${response.status} for ${url}:`, body);
+            dbg('API ERROR ' + response.status + ': ' + body.slice(0, 300));
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
