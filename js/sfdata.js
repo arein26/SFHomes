@@ -281,6 +281,7 @@ const SFData = (() => {
         const seen = new Set();
         const results = [];
 
+        let loggedSamples = 0;
         for (const rec of records) {
             const loc = (rec.property_location || '').trim().toUpperCase();
             if (!loc || seen.has(loc)) continue;
@@ -288,6 +289,11 @@ const SFData = (() => {
 
             const parsed = parseAddress(loc);
             if (!parsed) continue;
+
+            if (loggedSamples < 3) {
+                dbg(`RAW: "${loc}" → #${parsed.number} | ${parsed.streetName} | ${parsed.streetSuffix}`);
+                loggedSamples++;
+            }
 
             results.push({
                 fullAddress: buildDisplayAddress(parsed),
@@ -325,8 +331,17 @@ const SFData = (() => {
         const match = addr.match(/^(\d+)\s+(.+)$/);
         if (!match) return null;
 
-        const number = match[1];
+        let number = match[1];
         let streetPart = match[2].trim();
+
+        // Handle assessor format: "0000 3243 WASHINGTON ST"
+        // The first number is a sub-address prefix; the real house number
+        // is the second numeric token.
+        const prefixMatch = streetPart.match(/^(\d+)\s+(.+)$/);
+        if (prefixMatch) {
+            number = prefixMatch[1];
+            streetPart = prefixMatch[2].trim();
+        }
 
         let streetName = '';
         let streetSuffix = '';

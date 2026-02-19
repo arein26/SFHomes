@@ -22,8 +22,8 @@ const Domains = (() => {
     function generateVariations(addr) {
         if (!addr || !addr.number || !addr.streetName) return [];
 
-        // Strip leading zeros from house number (e.g. "0001" → "1")
-        const num = addr.number.replace(/^0+/, '') || addr.number;
+        // Strip leading zeros from house number (e.g. "0350" → "350")
+        const num = addr.number.replace(/^0+(\d)/, '$1');
         const street = cleanStreetName(addr.streetName);
         const suffix = addr.streetSuffix
             ? Config.streetSuffixes[addr.streetSuffix] || addr.streetSuffix
