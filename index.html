@@ -35,6 +35,7 @@
                     <span class="btn-icon">&#x1F50D;</span> Search Selected Area
                 </button>
                 <button id="clear-btn" class="btn btn-secondary" disabled>Clear Selection</button>
+                <button id="diag-btn" class="btn btn-secondary" style="font-size:0.75em">Diagnose API</button>
                 <div class="control-info">
                     <label>
                         <input type="checkbox" id="auto-check-domains" checked>
@@ -100,5 +101,36 @@
     <script src="js/domains.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/app.js"></script>
+    <script>
+    // Minimal API diagnostic — fetches 1 row from each endpoint, logs field names + types
+    document.getElementById('diag-btn').addEventListener('click', async () => {
+        const out = (msg) => { console.log(msg); };
+        const endpoints = {
+            'Land Use (us3s-fp9q)': Config.sfdata.landUseEndpoint + '?$limit=1',
+            'Parcels (acdm-wktn)': Config.sfdata.parcelsEndpoint + '?$limit=1',
+            'Assessor (wv5m-vpq2)': Config.sfdata.assessorEndpoint + '?$limit=1',
+        };
+        console.group('=== API DIAGNOSTIC ===');
+        for (const [name, url] of Object.entries(endpoints)) {
+            try {
+                const r = await fetch(url, { headers: { Accept: 'application/json' } });
+                if (!r.ok) {
+                    const body = await r.text().catch(() => '');
+                    out(`[${name}] HTTP ${r.status} — ${body.slice(0, 300)}`);
+                    continue;
+                }
+                const json = await r.json();
+                const row = Array.isArray(json) ? json[0] : (json.features ? json.features[0] : json);
+                if (!row) { out(`[${name}] OK but empty dataset`); continue; }
+                out(`[${name}] fields: ${Object.keys(row).join(', ')}`);
+                out(`[${name}] sample: ${JSON.stringify(row).slice(0, 500)}`);
+            } catch (e) {
+                out(`[${name}] FETCH ERROR: ${e.message}`);
+            }
+        }
+        console.groupEnd();
+        alert('Diagnostic done — check the browser console (F12).');
+    });
+    </script>
 </body>
 </html>
