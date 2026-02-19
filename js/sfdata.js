@@ -94,7 +94,7 @@ const SFData = (() => {
             const url = Config.sfdata.landUseEndpoint +
                 `?$where=${encodeURIComponent(where)}` +
                 `&$limit=${limit}` +
-                `&$select=blklot,landuse`;
+                `&$select=mapblklot,landuse`;
 
             onStatus('Querying land use data...');
             dbg(`Strategy 1 (${geoCol}): ${url}`);
@@ -290,7 +290,7 @@ const SFData = (() => {
             if (!parsed) continue;
 
             results.push({
-                fullAddress: formatAddress(loc),
+                fullAddress: buildDisplayAddress(parsed),
                 rawAddress: loc,
                 ...parsed,
                 neighborhood: rec.analysis_neighborhood || '',
@@ -356,6 +356,31 @@ const SFData = (() => {
 
         if (!streetName) return null;
         return { number, streetName, streetSuffix, unit };
+    }
+
+    /**
+     * Build a clean display address from parsed components.
+     * "0001 03RD AV" → "1 3rd Ave"
+     */
+    function buildDisplayAddress(parsed) {
+        // Strip leading zeros from house number
+        const num = parsed.number.replace(/^0+(\d)/, '$1');
+
+        // Title-case the street name, then fix ordinals
+        const street = parsed.streetName
+            .toLowerCase()
+            .replace(/\b\w/g, c => c.toUpperCase())
+            // Fix ordinals: "03Rd" → "3rd"
+            .replace(/\b0*(\d+)(St|Nd|Rd|Th)\b/g, (_, n, s) => n + s.toLowerCase());
+
+        // Use the canonical abbreviation from config
+        const suffix = parsed.streetSuffix
+            ? Config.streetSuffixes[parsed.streetSuffix] ||
+              parsed.streetSuffix.charAt(0) + parsed.streetSuffix.slice(1).toLowerCase()
+            : '';
+
+        const unit = parsed.unit || '';
+        return `${num} ${street}${suffix ? ' ' + suffix : ''}${unit ? ' ' + unit : ''}`.trim();
     }
 
     function formatAddress(raw) {
