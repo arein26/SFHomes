@@ -36,14 +36,11 @@ const Config = {
         // Residential land use codes
         residentialLandUse: ['RESIDENT', 'MIXRES'],
 
-        // Single family use definitions from assessor data
-        singleFamilyUseDefinitions: [
-            'SINGLE FAMILY DWELLING',
-            'SINGLE FAMILY RESIDENTIAL',
-            'ONE FAMILY DWELLING',
-            'SFR',
-            'DWELLING',
-        ],
+        // Assessor use code for single-family residential (case-sensitive)
+        singleFamilyUseCodes: ['SRES'],
+
+        // Property class code "D" = Dwelling (excludes condos under SRES)
+        dwellingClassCode: 'D',
 
         // Default query limit
         defaultLimit: 100
