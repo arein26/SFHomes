@@ -335,10 +335,10 @@ const SFData = (() => {
         let streetPart = match[2].trim();
 
         // Handle assessor format: "0000 3243 WASHINGTON ST"
-        // The first number is a sub-address prefix; the real house number
-        // is the second numeric token.
+        // When the first number is all zeros (a placeholder prefix),
+        // the real house number is the second numeric token.
         const prefixMatch = streetPart.match(/^(\d+)\s+(.+)$/);
-        if (prefixMatch) {
+        if (prefixMatch && /^0+$/.test(number)) {
             number = prefixMatch[1];
             streetPart = prefixMatch[2].trim();
         }
