@@ -33,16 +33,33 @@ const SFData = (() => {
     ].join(',');
 
     /**
+     * Additional suffix abbreviations used by SF assessor data that differ
+     * from the canonical abbreviations in Config.streetSuffixes.
+     */
+    const EXTRA_SUFFIX_MAP = {
+        'AV': 'AVENUE',
+        'AVE': 'AVENUE',
+        'STRT': 'STREET',
+        'BL': 'BOULEVARD',
+        'BLV': 'BOULEVARD',
+        'CR': 'CIRCLE',
+        'TR': 'TERRACE',
+        'WY': 'WAY',
+        'LA': 'LANE',
+        'HY': 'HIGHWAY',
+    };
+
+    /**
      * Main entry: fetch single-family home addresses within the given bounds.
      */
     async function getAddressesInArea(bounds, limit, onStatus) {
-        // Reset debug panel
         if (_debugEl) _debugEl.textContent = '';
         dbg('=== SEARCH DEBUG ===');
         dbg('Bounds: ' + JSON.stringify(bounds));
 
         onStatus('Searching for residential parcels in selected area...');
 
+        // Strategy 1: Land Use dataset (has landuse type + geometry)
         try {
             const addresses = await fetchViaLandUse(bounds, limit, onStatus);
             if (addresses.length > 0) return addresses;
@@ -50,6 +67,7 @@ const SFData = (() => {
             dbg('Strategy 1 FAILED: ' + err.message);
         }
 
+        // Strategy 2: Parcels dataset (confirmed geometry column = "shape")
         try {
             onStatus('Trying parcels dataset...');
             const addresses = await fetchViaParcels(bounds, limit, onStatus);
@@ -58,46 +76,57 @@ const SFData = (() => {
             dbg('Strategy 2 FAILED: ' + err.message);
         }
 
+        // Strategy 3: Assessor dataset directly (has the_geom for geo filtering)
         onStatus('Trying assessor dataset directly...');
         return await fetchViaAssessorDirect(bounds, limit, onStatus);
     }
 
     /**
      * Strategy 1: Land Use dataset with intersects().
+     * Geometry column may be "the_geom" or "shape".
      */
     async function fetchViaLandUse(bounds, limit, onStatus) {
         const poly = boundsToWKT(bounds);
-        const where = `intersects(the_geom, '${poly}') AND landuse IN ('RESIDENT','MIXRES')`;
 
-        const url = Config.sfdata.landUseEndpoint +
-            `?$where=${encodeURIComponent(where)}` +
-            `&$limit=${limit}` +
-            `&$select=blklot,landuse`;
+        // Try "the_geom" first, then "shape" as fallback
+        for (const geoCol of ['the_geom', 'shape']) {
+            const where = `intersects(${geoCol}, '${poly}') AND landuse IN ('RESIDENT','MIXRES')`;
+            const url = Config.sfdata.landUseEndpoint +
+                `?$where=${encodeURIComponent(where)}` +
+                `&$limit=${limit}` +
+                `&$select=blklot,landuse`;
 
-        onStatus('Querying land use data...');
-        dbg('Strategy 1 URL: ' + url);
-        const landUseData = await fetchJSON(url);
-        dbg('Strategy 1 rows: ' + (landUseData ? landUseData.length : 0));
-        if (landUseData && landUseData[0]) dbg('Strategy 1 sample: ' + JSON.stringify(landUseData[0]));
+            onStatus('Querying land use data...');
+            dbg(`Strategy 1 (${geoCol}): ${url}`);
 
-        if (!landUseData || landUseData.length === 0) return [];
+            try {
+                const landUseData = await fetchJSON(url);
+                dbg(`Strategy 1 (${geoCol}) rows: ${landUseData ? landUseData.length : 0}`);
+                if (landUseData && landUseData[0]) dbg('Sample: ' + JSON.stringify(landUseData[0]));
 
-        onStatus(`Found ${landUseData.length} residential parcels. Looking up addresses...`);
+                if (!landUseData || landUseData.length === 0) continue;
 
-        const blockLots = landUseData
-            .map(r => r.blklot || r.mapblklot || r.block_lot)
-            .filter(Boolean);
+                onStatus(`Found ${landUseData.length} residential parcels. Looking up addresses...`);
+                const blockLots = landUseData
+                    .map(r => r.blklot || r.mapblklot || r.block_lot)
+                    .filter(Boolean);
 
-        if (blockLots.length === 0) return [];
-        return await lookupAssessorAddresses(blockLots, onStatus);
+                if (blockLots.length === 0) continue;
+                return await lookupAssessorAddresses(blockLots, onStatus);
+            } catch (err) {
+                dbg(`Strategy 1 (${geoCol}) error: ${err.message}`);
+            }
+        }
+        return [];
     }
 
     /**
      * Strategy 2: Parcels dataset with intersects().
+     * Geometry column is confirmed as "shape".
      */
     async function fetchViaParcels(bounds, limit, onStatus) {
         const poly = boundsToWKT(bounds);
-        const where = `intersects(the_geom, '${poly}')`;
+        const where = `intersects(shape, '${poly}')`;
 
         const url = Config.sfdata.parcelsEndpoint +
             `?$where=${encodeURIComponent(where)}` +
@@ -106,11 +135,11 @@ const SFData = (() => {
 
         dbg('Strategy 2 URL: ' + url);
         const parcelsData = await fetchJSON(url);
-        dbg('Strategy 2 rows: ' + (parcelsData ? (parcelsData.features || parcelsData).length : 0));
-        if (!parcelsData || parcelsData.length === 0) return [];
+        const features = parcelsData ? (parcelsData.features || parcelsData) : [];
+        dbg('Strategy 2 rows: ' + features.length);
+        if (!features || features.length === 0) return [];
+        if (features[0]) dbg('Sample: ' + JSON.stringify(features[0]).slice(0, 300));
 
-        const features = parcelsData.features || parcelsData;
-        if (features[0]) dbg('Strategy 2 sample: ' + JSON.stringify(features[0]).slice(0, 300));
         const blockLots = features.map(f => {
             const props = f.properties || f;
             return props.blklot || props.mapblklot ||
@@ -124,11 +153,11 @@ const SFData = (() => {
     }
 
     /**
-     * Strategy 3: Query Assessor directly.
-     * First probes for real field names.
+     * Strategy 3: Query Assessor directly with geographic bounds.
+     * The assessor dataset has a "the_geom" column for spatial filtering.
      */
     async function fetchViaAssessorDirect(bounds, limit, onStatus) {
-        // Probe: fetch 1 unfiltered row to see real field names + values
+        // Probe: fetch 1 unfiltered row to see real field names
         try {
             const probeUrl = Config.sfdata.assessorEndpoint + '?$limit=1';
             dbg('Assessor probe URL: ' + probeUrl);
@@ -136,26 +165,28 @@ const SFData = (() => {
             if (probeData && probeData[0]) {
                 dbg('Assessor FIELDS: ' + Object.keys(probeData[0]).join(', '));
                 dbg('Assessor SAMPLE: ' + JSON.stringify(probeData[0]).slice(0, 600));
-            } else {
-                dbg('Assessor probe returned empty');
             }
         } catch (e) {
             dbg('Assessor probe FAILED: ' + e.message);
         }
 
         const useFilter = buildUseCodeFilter();
+        const poly = boundsToWKT(bounds);
+        const geoFilter = `intersects(the_geom, '${poly}')`;
         dbg('useFilter: ' + useFilter);
+        dbg('geoFilter: ' + geoFilter);
 
+        // Try with geographic bounds + fiscal year
         for (const fy of Config.sfdata.fiscalYears) {
-            const where = `(${useFilter}) AND closed_roll_year='${fy}'`;
+            const where = `(${useFilter}) AND closed_roll_year='${fy}' AND ${geoFilter}`;
             const url = Config.sfdata.assessorEndpoint +
                 `?$where=${encodeURIComponent(where)}` +
                 `&$limit=${limit}` +
                 `&$select=${ASSESSOR_SELECT}` +
                 `&$order=property_location`;
 
-            onStatus(`Querying assessor data for single-family homes (FY ${fy})...`);
-            dbg('Strategy 3 FY ' + fy + ' URL: ' + url);
+            onStatus(`Querying assessor for single-family homes (FY ${fy})...`);
+            dbg('Strategy 3 FY ' + fy + ': ' + url);
 
             try {
                 const data = await fetchJSON(url);
@@ -166,15 +197,16 @@ const SFData = (() => {
             }
         }
 
-        // Fallback: no fiscal year
+        // Fallback: geographic bounds but no fiscal year filter
+        const fallbackWhere = `(${useFilter}) AND ${geoFilter}`;
         const fallbackUrl = Config.sfdata.assessorEndpoint +
-            `?$where=${encodeURIComponent(`(${useFilter})`)}` +
+            `?$where=${encodeURIComponent(fallbackWhere)}` +
             `&$limit=${limit}` +
             `&$select=${ASSESSOR_SELECT}` +
             `&$order=closed_roll_year DESC,property_location`;
 
         onStatus('Retrying with broader query...');
-        dbg('Strategy 3 fallback URL: ' + fallbackUrl);
+        dbg('Strategy 3 fallback: ' + fallbackUrl);
         try {
             const fallbackData = await fetchJSON(fallbackUrl);
             dbg('Strategy 3 fallback rows: ' + (fallbackData ? fallbackData.length : 0));
@@ -274,6 +306,10 @@ const SFData = (() => {
         return results;
     }
 
+    /**
+     * Parse a raw address like "2971 CALIFORNIA ST" into components.
+     * Handles SF assessor abbreviations like "AV" for Avenue.
+     */
     function parseAddress(raw) {
         if (!raw) return null;
 
@@ -299,10 +335,13 @@ const SFData = (() => {
         const words = streetPart.split(/\s+/);
         const lastWord = words[words.length - 1];
 
+        // Build abbreviation → full form lookup from config
         const abbrevToFull = {};
         for (const [full, abbr] of Object.entries(Config.streetSuffixes)) {
             abbrevToFull[abbr.toUpperCase()] = full;
         }
+        // Merge extra abbreviations (e.g. "AV" → "AVENUE")
+        Object.assign(abbrevToFull, EXTRA_SUFFIX_MAP);
 
         if (suffixKeys.includes(lastWord)) {
             streetSuffix = lastWord;
@@ -323,9 +362,14 @@ const SFData = (() => {
         return raw.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
     }
 
+    /**
+     * Convert bounds to a WKT POLYGON string for intersects().
+     * WKT uses longitude-latitude order (x y).
+     * Ring is counterclockwise (exterior).
+     */
     function boundsToWKT(bounds) {
         const { north, south, east, west } = bounds;
-        return `MULTIPOLYGON(((${west} ${north}, ${east} ${north}, ${east} ${south}, ${west} ${south}, ${west} ${north})))`;
+        return `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
     }
 
     async function fetchJSON(url) {

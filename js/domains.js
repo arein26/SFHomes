@@ -22,7 +22,8 @@ const Domains = (() => {
     function generateVariations(addr) {
         if (!addr || !addr.number || !addr.streetName) return [];
 
-        const num = addr.number;
+        // Strip leading zeros from house number (e.g. "0001" → "1")
+        const num = addr.number.replace(/^0+/, '') || addr.number;
         const street = cleanStreetName(addr.streetName);
         const suffix = addr.streetSuffix
             ? Config.streetSuffixes[addr.streetSuffix] || addr.streetSuffix
@@ -73,14 +74,24 @@ const Domains = (() => {
 
     /**
      * Clean a street name for use in a domain.
-     * Removes special characters, keeps alpha and spaces.
+     * Handles ordinal numbers (03RD → 3rd) and removes special characters.
      */
     function cleanStreetName(name) {
         return name
-            .replace(/[^A-Za-z\s]/g, '')
             .trim()
             .split(/\s+/)
-            .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+            .map(w => {
+                // Handle ordinal numbers: 03RD → 3rd, 22ND → 22nd, 1ST → 1st
+                const ordMatch = w.match(/^0*(\d+)(ST|ND|RD|TH)$/i);
+                if (ordMatch) {
+                    return ordMatch[1] + ordMatch[2].toLowerCase();
+                }
+                // Regular word: remove non-alpha, title case
+                const cleaned = w.replace(/[^A-Za-z]/g, '');
+                if (!cleaned) return '';
+                return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+            })
+            .filter(Boolean)
             .join('');
     }
 
