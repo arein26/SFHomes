@@ -62,7 +62,10 @@ const SFData = (() => {
             `&$select=blklot,landuse`;
 
         onStatus('Querying land use data...');
+        console.log('[DEBUG] Land Use URL:', url);
         const landUseData = await fetchJSON(url);
+        console.log('[DEBUG] Land Use result count:', landUseData ? landUseData.length : 0);
+        if (landUseData && landUseData[0]) console.log('[DEBUG] Land Use sample:', JSON.stringify(landUseData[0]));
 
         if (!landUseData || landUseData.length === 0) return [];
 
@@ -108,7 +111,20 @@ const SFData = (() => {
      * Strategy 3: Query Assessor dataset directly by use_code.
      */
     async function fetchViaAssessorDirect(bounds, limit, onStatus) {
+        // DEBUG: fetch 1 unfiltered row to discover real field names and values
+        try {
+            const debugUrl = Config.sfdata.assessorEndpoint + '?$limit=1';
+            const debugData = await fetchJSON(debugUrl);
+            if (debugData && debugData[0]) {
+                console.log('[DEBUG] Assessor fields:', Object.keys(debugData[0]));
+                console.log('[DEBUG] Assessor sample row:', JSON.stringify(debugData[0], null, 2));
+            }
+        } catch (e) {
+            console.warn('[DEBUG] Assessor probe failed:', e.message);
+        }
+
         const useFilter = buildUseCodeFilter();
+        console.log('[DEBUG] useFilter:', useFilter);
 
         for (const fy of Config.sfdata.fiscalYears) {
             const where = `(${useFilter}) AND closed_roll_year='${fy}'`;
