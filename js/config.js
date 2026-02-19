@@ -28,10 +28,10 @@ const Config = {
         assessorEndpoint: 'https://data.sfgov.org/resource/wv5m-vpq2.json',
 
         // Parcels Active - has geometry + block/lot
-        parcelsEndpoint: 'https://data.sfgov.org/resource/acdm-wktn.geojson',
+        parcelsEndpoint: 'https://data.sfgov.org/resource/acdm-wktn.json',
 
-        // Latest fiscal year to query (update as data becomes available)
-        latestFiscalYear: '2023',
+        // Fiscal years to try (newest first; the dataset ends at 2022-2023)
+        fiscalYears: ['2023', '2022', '2021'],
 
         // Residential land use codes
         residentialLandUse: ['RESIDENT', 'MIXRES'],

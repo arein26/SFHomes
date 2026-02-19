@@ -51,8 +51,8 @@ const SFData = (() => {
      * then look up addresses in Assessor dataset.
      */
     async function fetchViaLandUse(bounds, limit, onStatus) {
-        const where = buildBBoxWhere('the_geom', bounds) +
-            ` AND landuse IN ('RESIDENT','MIXRES')`;
+        const bbox = buildBBoxWhere('the_geom', bounds);
+        const where = `${bbox} AND landuse IN ('RESIDENT','MIXRES')`;
 
         const url = Config.sfdata.landUseEndpoint +
             `?$where=${encodeURIComponent(where)}` +
@@ -93,9 +93,9 @@ const SFData = (() => {
 
         const parcelsData = await fetchJSON(url);
 
-        if (!parcelsData) return [];
+        if (!parcelsData || parcelsData.length === 0) return [];
 
-        // Handle GeoJSON response
+        // Handle both JSON array and GeoJSON responses
         const features = parcelsData.features || parcelsData;
         const blockLots = features.map(f => {
             const props = f.properties || f;
@@ -111,40 +111,47 @@ const SFData = (() => {
 
     /**
      * Strategy 3: Query Assessor dataset directly.
-     * Uses the analysis_neighborhood field to approximate area matching.
+     * Tries multiple fiscal years to find data.
      */
     async function fetchViaAssessorDirect(bounds, limit, onStatus) {
-        // Get the most recent year's data, filtered for single family
         const sfhFilters = Config.sfdata.singleFamilyUseDefinitions
             .map(d => `use_definition='${d}'`)
             .join(' OR ');
 
-        // We can't do geospatial on the assessor data directly,
-        // so get single family homes and filter client-side if we have coords
-        const url = Config.sfdata.assessorEndpoint +
-            `?$where=${encodeURIComponent(`(${sfhFilters}) AND closed_roll_fiscal_year='${Config.sfdata.latestFiscalYear}'`)}` +
-            `&$limit=${limit}` +
-            `&$select=property_location,block,lot,use_definition,analysis_neighborhood,number_of_bedrooms,number_of_bathrooms,year_property_built` +
-            `&$order=property_location`;
+        const selectFields = 'property_location,block,lot,use_definition,analysis_neighborhood,number_of_bedrooms,number_of_bathrooms,year_property_built';
 
-        onStatus('Querying assessor data for single-family homes...');
-        const data = await fetchJSON(url);
-
-        if (!data || data.length === 0) {
-            // Try without fiscal year filter
-            const fallbackUrl = Config.sfdata.assessorEndpoint +
-                `?$where=${encodeURIComponent(`(${sfhFilters})`)}` +
+        // Try each fiscal year in order (newest first)
+        for (const fy of Config.sfdata.fiscalYears) {
+            const where = `(${sfhFilters}) AND closed_roll_year='${fy}'`;
+            const url = Config.sfdata.assessorEndpoint +
+                `?$where=${encodeURIComponent(where)}` +
                 `&$limit=${limit}` +
-                `&$select=property_location,block,lot,use_definition,analysis_neighborhood,number_of_bedrooms,number_of_bathrooms,year_property_built` +
-                `&$order=closed_roll_fiscal_year DESC,property_location`;
+                `&$select=${selectFields}` +
+                `&$order=property_location`;
 
-            onStatus('Retrying with broader query...');
-            const fallbackData = await fetchJSON(fallbackUrl);
-            if (!fallbackData || fallbackData.length === 0) return [];
-            return deduplicateAndParse(fallbackData);
+            onStatus(`Querying assessor data for single-family homes (FY ${fy})...`);
+
+            try {
+                const data = await fetchJSON(url);
+                if (data && data.length > 0) {
+                    return deduplicateAndParse(data);
+                }
+            } catch (err) {
+                console.warn(`Assessor query for FY ${fy} failed:`, err.message);
+            }
         }
 
-        return deduplicateAndParse(data);
+        // Final fallback: no fiscal year filter
+        const fallbackUrl = Config.sfdata.assessorEndpoint +
+            `?$where=${encodeURIComponent(`(${sfhFilters})`)}` +
+            `&$limit=${limit}` +
+            `&$select=${selectFields}` +
+            `&$order=closed_roll_year DESC,property_location`;
+
+        onStatus('Retrying with broader query...');
+        const fallbackData = await fetchJSON(fallbackUrl);
+        if (!fallbackData || fallbackData.length === 0) return [];
+        return deduplicateAndParse(fallbackData);
     }
 
     /**
@@ -156,40 +163,59 @@ const SFData = (() => {
         const batchSize = 50;
         const allResults = [];
 
+        const sfhFilters = Config.sfdata.singleFamilyUseDefinitions
+            .map(d => `use_definition='${d}'`)
+            .join(' OR ');
+
         for (let i = 0; i < unique.length; i += batchSize) {
             const batch = unique.slice(i, i + batchSize);
 
             // Build block/lot where clause
-            // Assessor has separate block and lot fields
             // blklot format is typically "BBBBLLLL" (4-digit block + 3-4 digit lot)
             const conditions = batch.map(bl => {
-                // Try to split into block and lot
                 const block = bl.substring(0, 4);
                 const lot = bl.substring(4);
                 return `(block='${block}' AND lot='${lot}')`;
             }).join(' OR ');
 
-            const sfhFilters = Config.sfdata.singleFamilyUseDefinitions
-                .map(d => `use_definition='${d}'`)
-                .join(' OR ');
-
-            const where = `(${conditions}) AND (${sfhFilters})` +
-                ` AND closed_roll_fiscal_year='${Config.sfdata.latestFiscalYear}'`;
-
-            const url = Config.sfdata.assessorEndpoint +
-                `?$where=${encodeURIComponent(where)}` +
-                `&$limit=1000` +
-                `&$select=property_location,block,lot,use_definition,analysis_neighborhood,number_of_bedrooms,number_of_bathrooms,year_property_built`;
-
             onStatus(`Looking up addresses... (batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(unique.length / batchSize)})`);
 
-            try {
-                const data = await fetchJSON(url);
-                if (data && data.length > 0) {
-                    allResults.push(...data);
+            // Try each fiscal year
+            let batchFound = false;
+            for (const fy of Config.sfdata.fiscalYears) {
+                const where = `(${conditions}) AND (${sfhFilters}) AND closed_roll_year='${fy}'`;
+                const url = Config.sfdata.assessorEndpoint +
+                    `?$where=${encodeURIComponent(where)}` +
+                    `&$limit=1000` +
+                    `&$select=property_location,block,lot,use_definition,analysis_neighborhood,number_of_bedrooms,number_of_bathrooms,year_property_built`;
+
+                try {
+                    const data = await fetchJSON(url);
+                    if (data && data.length > 0) {
+                        allResults.push(...data);
+                        batchFound = true;
+                        break;
+                    }
+                } catch (err) {
+                    console.warn(`Batch ${i} FY ${fy} failed:`, err.message);
                 }
-            } catch (err) {
-                console.warn(`Batch ${i} failed:`, err.message);
+            }
+
+            // Fallback without fiscal year
+            if (!batchFound) {
+                const where = `(${conditions}) AND (${sfhFilters})`;
+                const url = Config.sfdata.assessorEndpoint +
+                    `?$where=${encodeURIComponent(where)}` +
+                    `&$limit=1000` +
+                    `&$select=property_location,block,lot,use_definition,analysis_neighborhood,number_of_bedrooms,number_of_bathrooms,year_property_built`;
+                try {
+                    const data = await fetchJSON(url);
+                    if (data && data.length > 0) {
+                        allResults.push(...data);
+                    }
+                } catch (err) {
+                    console.warn(`Batch ${i} fallback failed:`, err.message);
+                }
             }
         }
 
@@ -220,7 +246,7 @@ const SFData = (() => {
                 bathrooms: rec.number_of_bathrooms || '',
                 yearBuilt: rec.year_property_built || '',
                 blockLot: (rec.block || '') + (rec.lot || ''),
-                lat: null, // Not available from assessor data
+                lat: null,
                 lng: null
             });
         }
@@ -294,6 +320,7 @@ const SFData = (() => {
 
     /**
      * Build a SODA $where clause for bounding box.
+     * Uses within_box(column, NW_lat, NW_lon, SE_lat, SE_lon).
      */
     function buildBBoxWhere(geomField, bounds) {
         return `within_box(${geomField}, ${bounds.north}, ${bounds.west}, ${bounds.south}, ${bounds.east})`;
@@ -308,6 +335,8 @@ const SFData = (() => {
         });
 
         if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            console.error(`API error ${response.status} for ${url}:`, body);
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
