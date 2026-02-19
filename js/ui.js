@@ -36,11 +36,15 @@ const UI = (() => {
         progressText().textContent = total > 0 ? `${current}/${total}` : '';
     }
 
+    // Track whether we're showing all addresses or only those with domains
+    let showingAll = true;
+
     /**
      * Render address results with domain variations.
      * @param {Array} addresses - address objects with domainVariations
+     * @param {Object} options - { filterRegistered: bool }
      */
-    function renderResults(addresses) {
+    function renderResults(addresses, options) {
         const list = resultsList();
         list.innerHTML = '';
 
@@ -51,14 +55,68 @@ const UI = (() => {
             return;
         }
 
-        resultsCount().textContent = `(${addresses.length} address${addresses.length !== 1 ? 'es' : ''})`;
+        const opts = options || {};
+        let displayAddresses = addresses;
 
-        addresses.forEach((addr, idx) => {
+        if (opts.filterRegistered) {
+            displayAddresses = addresses.filter(addr => {
+                const vars = addr.domainVariations || [];
+                return vars.some(v => v.status === 'active' || v.status === 'registered');
+            });
+            showingAll = false;
+        } else {
+            showingAll = true;
+        }
+
+        // Sort: addresses with active/registered domains first, by newest registration date
+        displayAddresses = [...displayAddresses].sort((a, b) => {
+            const aDate = newestRegistrationDate(a);
+            const bDate = newestRegistrationDate(b);
+            const aHas = hasRegisteredDomain(a);
+            const bHas = hasRegisteredDomain(b);
+            // Addresses with domains first
+            if (aHas && !bHas) return -1;
+            if (!aHas && bHas) return 1;
+            // Among those with domains, sort by newest registration date
+            if (aDate && bDate) return bDate - aDate; // newest first
+            if (aDate) return -1;
+            if (bDate) return 1;
+            return 0;
+        });
+
+        const totalWithDomains = addresses.filter(a => hasRegisteredDomain(a)).length;
+        const countText = opts.filterRegistered
+            ? `(${displayAddresses.length} with domains, ${addresses.length} total)`
+            : `(${addresses.length} address${addresses.length !== 1 ? 'es' : ''})`;
+        resultsCount().textContent = countText;
+
+        displayAddresses.forEach((addr, idx) => {
             const card = createAddressCard(addr, idx);
+            // Auto-expand cards that have active/registered domains
+            if (hasRegisteredDomain(addr)) {
+                card.classList.add('expanded');
+            }
             list.appendChild(card);
         });
 
         resultsSection().hidden = false;
+    }
+
+    function hasRegisteredDomain(addr) {
+        const vars = addr.domainVariations || [];
+        return vars.some(v => v.status === 'active' || v.status === 'registered');
+    }
+
+    function newestRegistrationDate(addr) {
+        const vars = addr.domainVariations || [];
+        let newest = null;
+        for (const v of vars) {
+            if (v.registrationDate) {
+                const d = new Date(v.registrationDate);
+                if (!newest || d > newest) newest = d;
+            }
+        }
+        return newest;
     }
 
     /**
@@ -90,6 +148,15 @@ const UI = (() => {
             meta.className = 'address-meta';
             meta.textContent = addr.neighborhood;
             leftSide.appendChild(meta);
+        }
+
+        // Show newest registration date on card header
+        const newest = newestRegistrationDate(addr);
+        if (newest) {
+            const dateMeta = document.createElement('span');
+            dateMeta.className = 'address-meta address-reg-date';
+            dateMeta.textContent = 'Reg: ' + newest.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            leftSide.appendChild(dateMeta);
         }
 
         const rightSide = document.createElement('div');
@@ -161,6 +228,20 @@ const UI = (() => {
     }
 
     /**
+     * Format registration metadata (registrar, dates) for display.
+     */
+    function formatRegMeta(variation) {
+        const parts = [];
+        if (variation.registrar) parts.push(variation.registrar);
+        if (variation.registrationDate) {
+            const d = new Date(variation.registrationDate);
+            parts.push('reg ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+        }
+        if (parts.length === 0) return '';
+        return ` <span class="status-meta">(${parts.join(' | ')})</span>`;
+    }
+
+    /**
      * Update a domain status element based on check result.
      */
     function updateDomainStatusEl(el, variation) {
@@ -170,16 +251,12 @@ const UI = (() => {
         switch (variation.status) {
             case 'active':
                 el.innerHTML = '<span class="status-active">DNS Active</span>';
-                if (variation.registrar) {
-                    el.innerHTML += ` <span class="status-meta">(${variation.registrar})</span>`;
-                }
+                el.innerHTML += formatRegMeta(variation);
                 break;
 
             case 'registered':
                 el.innerHTML = '<span class="status-registered">Registered</span>';
-                if (variation.registrar) {
-                    el.innerHTML += ` <span class="status-meta">(${variation.registrar})</span>`;
-                }
+                el.innerHTML += formatRegMeta(variation);
                 break;
 
             case 'available':

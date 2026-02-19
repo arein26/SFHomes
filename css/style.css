@@ -339,6 +339,11 @@ main {
     margin-left: 12px;
 }
 
+.address-reg-date {
+    color: #92400e;
+    font-weight: 500;
+}
+
 .address-badges {
     display: flex;
     gap: 6px;

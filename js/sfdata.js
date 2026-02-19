@@ -93,8 +93,7 @@ const SFData = (() => {
             const where = `intersects(${geoCol}, '${poly}') AND landuse IN ('RESIDENT','MIXRES')`;
             const url = Config.sfdata.landUseEndpoint +
                 `?$where=${encodeURIComponent(where)}` +
-                `&$limit=${limit}` +
-                `&$select=mapblklot,landuse`;
+                `&$limit=${limit}`;
 
             onStatus('Querying land use data...');
             dbg(`Strategy 1 (${geoCol}): ${url}`);
@@ -347,9 +346,6 @@ const SFData = (() => {
         let streetSuffix = '';
         const suffixKeys = Object.keys(Config.streetSuffixes);
 
-        const words = streetPart.split(/\s+/);
-        const lastWord = words[words.length - 1];
-
         // Build abbreviation → full form lookup from config
         const abbrevToFull = {};
         for (const [full, abbr] of Object.entries(Config.streetSuffixes)) {
@@ -357,6 +353,25 @@ const SFData = (() => {
         }
         // Merge extra abbreviations (e.g. "AV" → "AVENUE")
         Object.assign(abbrevToFull, EXTRA_SUFFIX_MAP);
+
+        const words = streetPart.split(/\s+/);
+        let lastWord = words[words.length - 1];
+
+        // Handle assessor fixed-width format where suffix+unit are
+        // concatenated, e.g. "ST0000", "ST0402", "AV0001"
+        const suffixDigitMatch = lastWord.match(/^([A-Z]+)(\d+)$/);
+        if (suffixDigitMatch) {
+            const maybeSuffix = suffixDigitMatch[1];
+            const maybeUnit = suffixDigitMatch[2];
+            if (abbrevToFull[maybeSuffix] || suffixKeys.includes(maybeSuffix)) {
+                lastWord = maybeSuffix;
+                words[words.length - 1] = maybeSuffix;
+                // Keep non-zero unit numbers (0000 = no unit)
+                if (!/^0+$/.test(maybeUnit)) {
+                    unit = '#' + maybeUnit.replace(/^0+(\d)/, '$1');
+                }
+            }
+        }
 
         if (suffixKeys.includes(lastWord)) {
             streetSuffix = lastWord;

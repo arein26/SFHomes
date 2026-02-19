@@ -14,6 +14,7 @@ const App = (() => {
         document.getElementById('search-btn').addEventListener('click', handleSearch);
         document.getElementById('clear-btn').addEventListener('click', handleClear);
         document.getElementById('check-all-btn').addEventListener('click', handleCheckAll);
+        document.getElementById('show-all-btn').addEventListener('click', handleShowAll);
         document.getElementById('export-btn').addEventListener('click', handleExport);
 
         // Listen for area selection events
@@ -163,10 +164,17 @@ const App = (() => {
             }
         );
 
+        // Re-render sorted/filtered: only show addresses with domains
+        UI.renderResults(currentAddresses, { filterRegistered: true });
+
+        // Show the toggle button
+        const showAllBtn = document.getElementById('show-all-btn');
+        showAllBtn.hidden = false;
+        showAllBtn.textContent = 'Show All Addresses';
+
         UI.showStatus(
-            `Done! Checked ${total} domains. ` +
-            `${activeDomains} active, ${registeredDomains} registered (no DNS), ` +
-            `${total - activeDomains - registeredDomains} not found.`
+            `Done! ${activeDomains} active, ${registeredDomains} registered. ` +
+            `Showing addresses with domains (sorted by newest registration).`
         );
     }
 
@@ -188,6 +196,20 @@ const App = (() => {
         currentAddresses = [];
         allDomainVariations = [];
         domainIndexMap = {};
+    }
+
+    /**
+     * Toggle between showing only addresses with domains vs all.
+     */
+    function handleShowAll() {
+        const btn = document.getElementById('show-all-btn');
+        if (btn.textContent.includes('Show All')) {
+            UI.renderResults(currentAddresses);
+            btn.textContent = 'Show Only With Domains';
+        } else {
+            UI.renderResults(currentAddresses, { filterRegistered: true });
+            btn.textContent = 'Show All Addresses';
+        }
     }
 
     /**
