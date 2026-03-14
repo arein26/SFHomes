@@ -40,6 +40,9 @@ const App = (() => {
     }
 
     function init() {
+        // Initialize map
+        MapManager.init();
+
         // Wire up button handlers
         document.getElementById('search-btn').addEventListener('click', handleSearch);
         document.getElementById('check-all-btn').addEventListener('click', handleCheckAll);
@@ -54,6 +57,22 @@ const App = (() => {
 
         // Restore last session
         restoreSession();
+    }
+
+    /**
+     * Get the max sqft filter value (0 = no limit).
+     */
+    function getMaxSqft() {
+        return parseInt(document.getElementById('max-sqft').value, 10) || 0;
+    }
+
+    /**
+     * Apply sqft filter to an address list.
+     */
+    function applySqftFilter(addresses) {
+        const maxSqft = getMaxSqft();
+        if (maxSqft <= 0) return addresses;
+        return addresses.filter(a => !a.sqft || a.sqft <= maxSqft);
     }
 
     function restoreSession() {
@@ -78,6 +97,7 @@ const App = (() => {
                 const active = countByStatus('active');
                 const registered = countByStatus('registered');
                 UI.showStatus(`Restored ${currentAddresses.length} addresses. ${active} active, ${registered} registered domains.`);
+                MapManager.showPins(currentAddresses);
             } else {
                 UI.renderResults(currentAddresses);
                 UI.showStatus(`Restored ${currentAddresses.length} addresses. Click "Search All Domains" to check.`);
@@ -166,13 +186,15 @@ const App = (() => {
                 return;
             }
 
-            UI.showStatus(`Loaded ${addresses.length} properties. Generating domain variations...`);
+            // Apply sqft filter
+            const filtered = applySqftFilter(addresses);
+            UI.showStatus(`Loaded ${filtered.length} properties${filtered.length < addresses.length ? ` (${addresses.length - filtered.length} filtered by sqft)` : ''}. Generating domain variations...`);
 
-            currentAddresses = addresses;
+            currentAddresses = filtered;
             allDomainVariations = [];
             domainIndexMap = {};
 
-            addresses.forEach((addr, addrIdx) => {
+            filtered.forEach((addr, addrIdx) => {
                 const known = knownDomains[addr.fullAddress];
                 if (known) {
                     // Property has a known found domain — only show that one
@@ -205,17 +227,17 @@ const App = (() => {
                 });
             });
 
-            UI.renderResults(addresses);
+            UI.renderResults(filtered);
 
             const totalDomains = allDomainVariations.length;
-            UI.showStatus(`${addresses.length} properties, ${totalDomains} domain variations.`);
+            UI.showStatus(`${filtered.length} properties, ${totalDomains} domain variations.`);
 
             if (autoCheck) {
                 await runDomainChecks();
             } else {
                 saveState();
                 UI.showStatus(
-                    `${addresses.length} properties with ${totalDomains} domain variations. ` +
+                    `${filtered.length} properties with ${totalDomains} domain variations. ` +
                     `Click "Check All Domains" to start checking.`
                 );
             }
@@ -242,6 +264,7 @@ const App = (() => {
             document.getElementById('show-all-btn').hidden = false;
             document.getElementById('show-all-btn').textContent = 'Show All Addresses';
             UI.showStatus(`All domains known. ${active} active, ${registered} registered.`);
+            MapManager.showPins(currentAddresses);
             return;
         }
 
@@ -278,6 +301,7 @@ const App = (() => {
                 `All ${allDomainVariations.length} domains cached. ` +
                 `${activeDomains} active, ${registeredDomains} registered.`
             );
+            MapManager.showPins(currentAddresses);
             return;
         }
 
@@ -359,6 +383,9 @@ const App = (() => {
             (recentCount > 0 ? ` ${recentCount} recent domains being monitored.` : '') +
             ` Sorted by newest registration date.`
         );
+
+        // Update map pins
+        MapManager.showPins(currentAddresses);
     }
 
     async function handleCheckAll() {

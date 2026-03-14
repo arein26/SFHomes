@@ -80,7 +80,7 @@ main {
 }
 
 #map {
-    height: 480px;
+    height: 400px;
     width: 100%;
     background: #e5e7eb;
     z-index: 1;
@@ -103,6 +103,14 @@ main {
 
 .map-overlay.hidden {
     opacity: 0;
+}
+
+#map-legend {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
 }
 
 /* ── Controls ─────────────────────────────────── */

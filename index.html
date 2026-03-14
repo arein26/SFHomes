@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SF Home Domain Scout</title>
-    <link rel="stylesheet" href="css/style.css?v=12">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="css/style.css?v=13">
 </head>
 <body>
     <header>
@@ -15,6 +16,11 @@
     </header>
 
     <main>
+        <section id="map-section">
+            <div id="map"></div>
+            <div id="map-legend">Pins: active domains, not sold in last 12 months</div>
+        </section>
+
         <section id="controls-section">
             <div class="controls-row">
                 <button id="search-btn" class="btn btn-primary">
@@ -25,6 +31,18 @@
                     <label>
                         <input type="checkbox" id="auto-check-domains" checked>
                         Auto-check domains
+                    </label>
+                    <label>
+                        Max sqft:
+                        <select id="max-sqft">
+                            <option value="0" selected>No limit</option>
+                            <option value="1500">1,500</option>
+                            <option value="2000">2,000</option>
+                            <option value="2500">2,500</option>
+                            <option value="3000">3,000</option>
+                            <option value="4000">4,000</option>
+                            <option value="5000">5,000</option>
+                        </select>
                     </label>
                     <label>
                         Max addresses:
@@ -74,10 +92,12 @@
         <p>Property data from ZenList. Domain checks via RDAP &amp; DNS-over-HTTPS. For informational purposes only.</p>
     </footer>
 
-    <script src="js/config.js?v=12"></script>
-    <script src="js/sfdata.js?v=12"></script>
-    <script src="js/domains.js?v=12"></script>
-    <script src="js/ui.js?v=12"></script>
-    <script src="js/app.js?v=12"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="js/config.js?v=13"></script>
+    <script src="js/sfdata.js?v=13"></script>
+    <script src="js/domains.js?v=13"></script>
+    <script src="js/map.js?v=13"></script>
+    <script src="js/ui.js?v=13"></script>
+    <script src="js/app.js?v=13"></script>
 </body>
 </html>
