@@ -90,7 +90,8 @@ const SFData = (() => {
 
         // Try "the_geom" first, then "shape" as fallback
         for (const geoCol of ['the_geom', 'shape']) {
-            const where = `intersects(${geoCol}, '${poly}') AND landuse IN ('RESIDENT','MIXRES')`;
+            const luCodes = Config.sfdata.residentialLandUse.map(c => `'${c}'`).join(',');
+            const where = `intersects(${geoCol}, '${poly}') AND landuse IN (${luCodes})`;
             const url = Config.sfdata.landUseEndpoint +
                 `?$where=${encodeURIComponent(where)}` +
                 `&$limit=${limit}`;
@@ -127,9 +128,11 @@ const SFData = (() => {
         const poly = boundsToWKT(bounds);
         const where = `intersects(shape, '${poly}')`;
 
+        // Fetch more parcels than the address limit since many won't be residential
+        const parcelLimit = Math.min(limit * 5, 2000);
         const url = Config.sfdata.parcelsEndpoint +
             `?$where=${encodeURIComponent(where)}` +
-            `&$limit=${limit}` +
+            `&$limit=${parcelLimit}` +
             `&$select=blklot,mapblklot,block_num,lot_num`;
 
         dbg('Strategy 2 URL: ' + url);

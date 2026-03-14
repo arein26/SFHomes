@@ -102,6 +102,12 @@ const UI = (() => {
         resultsSection().hidden = false;
     }
 
+    function buildZillowUrl(addr) {
+        // Format: "1705 Gough St" → "1705-Gough-St-San-Francisco-CA"
+        const slug = addr.fullAddress.trim().replace(/\s+/g, '-');
+        return `https://www.zillow.com/homes/${encodeURIComponent(slug)}-San-Francisco-CA_rb/`;
+    }
+
     function hasRegisteredDomain(addr) {
         const vars = addr.domainVariations || [];
         return vars.some(v => v.status === 'active' || v.status === 'registered');
@@ -142,6 +148,16 @@ const UI = (() => {
         nameSpan.className = 'address-name';
         nameSpan.textContent = addr.fullAddress;
         leftSide.appendChild(nameSpan);
+
+        // Zillow link
+        const zillowLink = document.createElement('a');
+        zillowLink.className = 'address-meta zillow-link';
+        zillowLink.href = buildZillowUrl(addr);
+        zillowLink.target = '_blank';
+        zillowLink.rel = 'noopener';
+        zillowLink.textContent = 'Zillow';
+        zillowLink.onclick = (e) => e.stopPropagation(); // don't toggle card
+        leftSide.appendChild(zillowLink);
 
         if (addr.neighborhood) {
             const meta = document.createElement('span');
@@ -213,10 +229,19 @@ const UI = (() => {
         row.className = 'domain-row';
         row.id = `domain-${addrIdx}-${domainIdx}`;
 
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'domain-name';
-        nameSpan.textContent = variation.domain;
-        row.appendChild(nameSpan);
+        let nameEl;
+        if (variation.status === 'active') {
+            nameEl = document.createElement('a');
+            nameEl.className = 'domain-name domain-link';
+            nameEl.href = 'https://' + variation.domain;
+            nameEl.target = '_blank';
+            nameEl.rel = 'noopener';
+        } else {
+            nameEl = document.createElement('span');
+            nameEl.className = 'domain-name';
+        }
+        nameEl.textContent = variation.domain;
+        row.appendChild(nameEl);
 
         const statusSpan = document.createElement('span');
         statusSpan.className = 'domain-status';

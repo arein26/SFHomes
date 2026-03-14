@@ -141,6 +141,28 @@ const MapManager = (() => {
     }
 
     /**
+     * Restore a previously saved rectangle selection on the map.
+     */
+    function restoreRectangle(bounds) {
+        if (!bounds || !bounds.north) return;
+        drawnItems.clearLayers();
+        const rect = L.rectangle(
+            [[bounds.south, bounds.west], [bounds.north, bounds.east]],
+            { color: '#2563eb', weight: 2, fillOpacity: 0.1 }
+        );
+        drawnItems.addLayer(rect);
+        currentSelection = rect;
+
+        const overlay = document.getElementById('map-overlay');
+        if (overlay) overlay.classList.add('hidden');
+        document.getElementById('search-btn').disabled = false;
+        document.getElementById('clear-btn').disabled = false;
+
+        // Pan map to show the restored area
+        map.fitBounds(rect.getBounds(), { padding: [50, 50] });
+    }
+
+    /**
      * Clear the current selection.
      */
     function clearSelection() {
@@ -196,6 +218,7 @@ const MapManager = (() => {
         getSelectionBounds,
         getSelectionWKT,
         clearSelection,
+        restoreRectangle,
         addAddressMarkers,
         highlightMarker
     };

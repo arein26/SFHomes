@@ -33,11 +33,11 @@ const Config = {
         // Fiscal years to try (newest first; the dataset ends at 2022-2023)
         fiscalYears: ['2023', '2022', '2021'],
 
-        // Residential land use codes
-        residentialLandUse: ['RESIDENT', 'MIXRES'],
+        // Residential land use codes (for land-use dataset filtering)
+        residentialLandUse: ['RESIDENT', 'MIXRES', 'RESID', 'CIE'],
 
-        // Assessor use code for single-family residential (case-sensitive)
-        singleFamilyUseCodes: ['SRES'],
+        // Assessor use codes for residential properties
+        singleFamilyUseCodes: ['SRES', 'MRES', 'CONDO', 'MIXRES', 'TIC'],
 
         // Property class code "D" = Dwelling (excludes condos under SRES)
         dwellingClassCode: 'D',

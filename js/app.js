@@ -3,9 +3,33 @@
  * Wires together map selection, data fetching, domain checking, and UI.
  */
 const App = (() => {
+    const STORAGE_KEY = 'sfDomainScout';
+
     let currentAddresses = [];
     let allDomainVariations = []; // flat list for batch checking
     let domainIndexMap = {};      // domain -> { addrIdx, domainIdx }
+    let domainCache = {};         // domain -> check result (persisted)
+
+    // ── localStorage helpers ──
+
+    function loadState() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch (_) { return null; }
+    }
+
+    function saveState() {
+        try {
+            const bounds = MapManager.getSelectionBounds();
+            const state = {
+                lastBounds: bounds,
+                addresses: currentAddresses,
+                domainCache
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (_) { /* quota exceeded, etc. */ }
+    }
 
     function init() {
         MapManager.init();
@@ -23,6 +47,65 @@ const App = (() => {
             UI.hideStatus();
             currentAddresses = [];
             allDomainVariations = [];
+        });
+
+        // Restore last session
+        restoreSession();
+    }
+
+    function restoreSession() {
+        const state = loadState();
+        if (!state) return;
+
+        // Restore domain cache
+        if (state.domainCache) domainCache = state.domainCache;
+
+        // Restore last search area rectangle on map
+        if (state.lastBounds) {
+            MapManager.restoreRectangle(state.lastBounds);
+        }
+
+        // Restore previous results
+        if (state.addresses && state.addresses.length > 0) {
+            currentAddresses = state.addresses;
+            buildDomainIndex();
+
+            const hasChecked = currentAddresses.some(a =>
+                (a.domainVariations || []).some(v => v.status !== 'unchecked')
+            );
+
+            if (hasChecked) {
+                UI.renderResults(currentAddresses, { filterRegistered: true });
+                document.getElementById('show-all-btn').hidden = false;
+                document.getElementById('show-all-btn').textContent = 'Show All Addresses';
+                const active = countByStatus('active');
+                const registered = countByStatus('registered');
+                UI.showStatus(`Restored ${currentAddresses.length} addresses. ${active} active, ${registered} registered domains.`);
+            } else {
+                UI.renderResults(currentAddresses);
+                UI.showStatus(`Restored ${currentAddresses.length} addresses. Click "Check All Domains" to check.`);
+            }
+        }
+    }
+
+    function countByStatus(status) {
+        let count = 0;
+        for (const addr of currentAddresses) {
+            for (const v of (addr.domainVariations || [])) {
+                if (v.status === status) count++;
+            }
+        }
+        return count;
+    }
+
+    function buildDomainIndex() {
+        allDomainVariations = [];
+        domainIndexMap = {};
+        currentAddresses.forEach((addr, addrIdx) => {
+            (addr.domainVariations || []).forEach((v, domainIdx) => {
+                allDomainVariations.push(v.domain);
+                domainIndexMap[v.domain] = { addrIdx, domainIdx };
+            });
         });
     }
 
@@ -96,6 +179,7 @@ const App = (() => {
             if (autoCheck) {
                 await runDomainChecks();
             } else {
+                saveState();
                 UI.showStatus(
                     `${addresses.length} addresses found with ${totalDomains} domain variations. ` +
                     `Click "Check All Domains" to start checking.`
@@ -113,19 +197,53 @@ const App = (() => {
 
     /**
      * Run domain registration checks for all generated variations.
+     * Uses cached results for domains already checked in a prior session.
      */
     async function runDomainChecks() {
         if (allDomainVariations.length === 0) return;
 
-        const total = allDomainVariations.length;
         let activeDomains = 0;
         let registeredDomains = 0;
 
-        UI.showStatus(`Checking ${total} domains...`);
-        UI.updateProgress(0, total);
+        // Apply cached results first, collect unchecked domains
+        const domainsToCheck = [];
+        for (const domain of allDomainVariations) {
+            const mapping = domainIndexMap[domain];
+            if (!mapping) continue;
+            const { addrIdx, domainIdx } = mapping;
+            const variation = currentAddresses[addrIdx]?.domainVariations?.[domainIdx];
+            if (!variation) continue;
+
+            const cached = domainCache[domain];
+            if (cached && (cached.status === 'active' || cached.status === 'registered')) {
+                // Use cached result
+                Object.assign(variation, cached);
+                if (cached.status === 'active') activeDomains++;
+                if (cached.status === 'registered') registeredDomains++;
+            } else {
+                domainsToCheck.push(domain);
+            }
+        }
+
+        const totalNew = domainsToCheck.length;
+        const totalCached = allDomainVariations.length - totalNew;
+
+        if (totalNew === 0) {
+            UI.renderResults(currentAddresses, { filterRegistered: true });
+            document.getElementById('show-all-btn').hidden = false;
+            document.getElementById('show-all-btn').textContent = 'Show All Addresses';
+            UI.showStatus(
+                `All ${allDomainVariations.length} domains already cached. ` +
+                `${activeDomains} active, ${registeredDomains} registered.`
+            );
+            return;
+        }
+
+        UI.showStatus(`Checking ${totalNew} domains (${totalCached} cached)...`);
+        UI.updateProgress(0, totalNew);
 
         await Domains.checkDomainsBatch(
-            allDomainVariations,
+            domainsToCheck,
             // onResult callback
             (result, index) => {
                 const mapping = domainIndexMap[result.domain];
@@ -140,6 +258,17 @@ const App = (() => {
                         currentAddresses[addrIdx].domainVariations[domainIdx],
                         result
                     );
+                }
+
+                // Cache registered/active results
+                if (result.status === 'active' || result.status === 'registered') {
+                    domainCache[result.domain] = {
+                        status: result.status,
+                        registrar: result.registrar,
+                        registrationDate: result.registrationDate,
+                        expirationDate: result.expirationDate,
+                        hasActiveDNS: result.hasActiveDNS
+                    };
                 }
 
                 // Update UI
@@ -157,12 +286,16 @@ const App = (() => {
             (completed, total) => {
                 UI.updateProgress(completed, total);
                 UI.showStatus(
-                    `Checking domains: ${completed}/${total}` +
+                    `Checking domains: ${completed}/${totalNew}` +
+                    (totalCached > 0 ? ` (${totalCached} cached)` : '') +
                     (activeDomains > 0 ? ` | ${activeDomains} active` : '') +
                     (registeredDomains > 0 ? ` | ${registeredDomains} registered` : '')
                 );
             }
         );
+
+        // Persist state
+        saveState();
 
         // Re-render sorted/filtered: only show addresses with domains
         UI.renderResults(currentAddresses, { filterRegistered: true });

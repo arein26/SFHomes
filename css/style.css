@@ -344,6 +344,24 @@ main {
     font-weight: 500;
 }
 
+.zillow-link {
+    color: var(--primary) !important;
+    font-weight: 500;
+    text-decoration: none;
+}
+.zillow-link:hover {
+    text-decoration: underline !important;
+}
+
+.domain-link {
+    color: var(--text);
+    text-decoration: none;
+}
+.domain-link:hover {
+    text-decoration: underline;
+    color: var(--primary);
+}
+
 .address-badges {
     display: flex;
     gap: 6px;
