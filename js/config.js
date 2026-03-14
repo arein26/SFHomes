@@ -34,10 +34,10 @@ const Config = {
         fiscalYears: ['2023', '2022', '2021'],
 
         // Residential land use codes (for land-use dataset filtering)
-        residentialLandUse: ['RESIDENT', 'MIXRES', 'RESID', 'CIE'],
+        residentialLandUse: ['RESIDENT', 'MIXRES'],
 
-        // Assessor use codes for residential properties
-        singleFamilyUseCodes: ['SRES', 'MRES', 'CONDO', 'MIXRES', 'TIC'],
+        // Assessor use codes: single-family + TIC (common SF house type)
+        singleFamilyUseCodes: ['SRES'],
 
         // Property class code "D" = Dwelling (excludes condos under SRES)
         dwellingClassCode: 'D',

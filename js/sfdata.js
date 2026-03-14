@@ -128,8 +128,7 @@ const SFData = (() => {
         const poly = boundsToWKT(bounds);
         const where = `intersects(shape, '${poly}')`;
 
-        // Fetch more parcels than the address limit since many won't be residential
-        const parcelLimit = Math.min(limit * 5, 2000);
+        const parcelLimit = Math.min(limit * 2, 500);
         const url = Config.sfdata.parcelsEndpoint +
             `?$where=${encodeURIComponent(where)}` +
             `&$limit=${parcelLimit}` +
