@@ -49,6 +49,14 @@ const App = (() => {
             allDomainVariations = [];
         });
 
+        // Save state when leaving the page (handles mid-check tab closes)
+        window.addEventListener('beforeunload', () => saveState());
+
+        // Also save when page becomes hidden (mobile tab switch)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') saveState();
+        });
+
         // Restore last session
         restoreSession();
     }
@@ -291,6 +299,8 @@ const App = (() => {
                     (activeDomains > 0 ? ` | ${activeDomains} active` : '') +
                     (registeredDomains > 0 ? ` | ${registeredDomains} registered` : '')
                 );
+                // Save progress periodically so tab close doesn't lose work
+                if (completed % 20 === 0) saveState();
             }
         );
 

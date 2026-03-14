@@ -55,16 +55,16 @@ const Config = {
         dnsEndpoint: 'https://dns.google/resolve',
 
         // Max concurrent domain checks
-        concurrency: 4,
+        concurrency: 12,
 
         // Delay between batches (ms)
-        batchDelay: 200,
+        batchDelay: 50,
 
         // TLDs to check
         tlds: ['.com'],
 
         // Request timeout (ms)
-        timeout: 8000
+        timeout: 4000
     },
 
     // Street suffix mappings: full form → abbreviation

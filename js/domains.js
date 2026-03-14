@@ -22,51 +22,22 @@ const Domains = (() => {
     function generateVariations(addr) {
         if (!addr || !addr.number || !addr.streetName) return [];
 
-        // Strip leading zeros from house number (e.g. "0350" → "350")
         const num = addr.number.replace(/^0+(\d)/, '$1');
         const street = cleanStreetName(addr.streetName);
         const suffix = addr.streetSuffix
             ? Config.streetSuffixes[addr.streetSuffix] || addr.streetSuffix
             : '';
-        const fullSuffix = addr.streetSuffix
-            ? addr.streetSuffix.charAt(0) + addr.streetSuffix.slice(1).toLowerCase()
-            : '';
 
         const variations = new Set();
 
         for (const tld of Config.domains.tlds) {
-            // Core patterns - number + street name
-            variations.add(`${num}${street}${tld}`);
-
-            // With abbreviated suffix
+            // Most common patterns only
+            variations.add(`${num}${street}${tld}`);          // 1705Gough.com
             if (suffix) {
-                variations.add(`${num}${street}${suffix}${tld}`);
+                variations.add(`${num}${street}${suffix}${tld}`);  // 1705GoughSt.com
             }
-
-            // With full suffix
-            if (fullSuffix && fullSuffix !== suffix) {
-                variations.add(`${num}${street}${fullSuffix}${tld}`);
-            }
-
-            // With SF / SanFrancisco
-            variations.add(`${num}${street}SF${tld}`);
-            variations.add(`${num}${street}SanFrancisco${tld}`);
-
-            // Hyphenated variants
-            variations.add(`${num}-${street}${tld}`);
-            if (suffix) {
-                variations.add(`${num}-${street}-${suffix}${tld}`);
-            }
-            variations.add(`${num}-${street}-SF${tld}`);
-
-            // Multi-word street names joined
-            if (street.includes(' ')) {
-                const joined = street.replace(/\s+/g, '');
-                variations.add(`${num}${joined}${tld}`);
-                if (suffix) {
-                    variations.add(`${num}${joined}${suffix}${tld}`);
-                }
-            }
+            variations.add(`${num}${street}SF${tld}`);         // 1705GoughSF.com
+            variations.add(`${num}-${street}${tld}`);          // 1705-Gough.com
         }
 
         return [...variations];
@@ -97,25 +68,33 @@ const Domains = (() => {
 
     /**
      * Check if a single domain is registered.
-     * Tries RDAP first, falls back to DNS-over-HTTPS.
-     *
-     * @param {string} domain - e.g., "2971California.com"
-     * @returns {Promise<Object>} { domain, status, registrar?, registrationDate?, dnsRecords? }
+     * Uses fast DNS check first; only does RDAP for domains with active DNS.
      */
     async function checkDomain(domain) {
         const result = { domain, status: 'unknown' };
 
         try {
-            // Try RDAP for .com domains
-            if (domain.endsWith('.com')) {
-                const rdapResult = await checkViaRDAP(domain);
-                if (rdapResult.status !== 'error') {
-                    return rdapResult;
+            // Phase 1: Fast DNS check
+            const dnsResult = await checkViaDNS(domain);
+
+            if (dnsResult.status === 'active') {
+                // Phase 2: RDAP for registration details (only for active domains)
+                if (domain.endsWith('.com')) {
+                    try {
+                        const rdapResult = await checkViaRDAP(domain);
+                        if (rdapResult.status !== 'error') {
+                            rdapResult.hasActiveDNS = true;
+                            rdapResult.status = 'active';
+                            return rdapResult;
+                        }
+                    } catch (_) { /* RDAP failed, still return DNS result */ }
                 }
+                return dnsResult;
             }
 
-            // Fallback: DNS-over-HTTPS
-            return await checkViaDNS(domain);
+            // No DNS = not interesting (either not registered or parked with no DNS)
+            dnsResult.status = 'available';
+            return dnsResult;
 
         } catch (err) {
             result.status = 'error';
@@ -170,18 +149,6 @@ const Domains = (() => {
                     if (expEvent) {
                         result.expirationDate = expEvent.eventDate;
                     }
-                }
-
-                // Also check DNS to see if the domain is actively configured
-                try {
-                    const dnsResult = await checkViaDNS(domain);
-                    result.hasActiveDNS = dnsResult.status === 'active';
-                } catch (_) {
-                    result.hasActiveDNS = false;
-                }
-
-                if (result.hasActiveDNS) {
-                    result.status = 'active';
                 }
 
                 return result;
