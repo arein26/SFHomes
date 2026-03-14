@@ -1,10 +1,10 @@
 /**
  * Main application orchestration.
- * Wires together map selection, data fetching, domain checking, and UI.
+ * Loads property database, generates domain variations, checks domains.
  */
 const App = (() => {
     const STORAGE_KEY = 'sfDomainScout';
-    const STORAGE_VERSION = 2; // bump to invalidate old cached sessions
+    const STORAGE_VERSION = 3; // bump to invalidate old cached sessions
 
     let currentAddresses = [];
     let allDomainVariations = []; // flat list for batch checking
@@ -18,7 +18,6 @@ const App = (() => {
             const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return null;
             const state = JSON.parse(raw);
-            // Invalidate stale cache from older code versions
             if (state.version !== STORAGE_VERSION) {
                 localStorage.removeItem(STORAGE_KEY);
                 return null;
@@ -29,10 +28,8 @@ const App = (() => {
 
     function saveState() {
         try {
-            const bounds = MapManager.getSelectionBounds();
             const state = {
                 version: STORAGE_VERSION,
-                lastBounds: bounds,
                 addresses: currentAddresses,
                 domainCache
             };
@@ -41,27 +38,14 @@ const App = (() => {
     }
 
     function init() {
-        MapManager.init();
-
         // Wire up button handlers
         document.getElementById('search-btn').addEventListener('click', handleSearch);
-        document.getElementById('clear-btn').addEventListener('click', handleClear);
         document.getElementById('check-all-btn').addEventListener('click', handleCheckAll);
         document.getElementById('show-all-btn').addEventListener('click', handleShowAll);
         document.getElementById('export-btn').addEventListener('click', handleExport);
 
-        // Listen for area selection events
-        document.addEventListener('areaCleared', () => {
-            UI.hideResults();
-            UI.hideStatus();
-            currentAddresses = [];
-            allDomainVariations = [];
-        });
-
-        // Save state when leaving the page (handles mid-check tab closes)
+        // Save state when leaving the page
         window.addEventListener('beforeunload', () => saveState());
-
-        // Also save when page becomes hidden (mobile tab switch)
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') saveState();
         });
@@ -74,15 +58,8 @@ const App = (() => {
         const state = loadState();
         if (!state) return;
 
-        // Restore domain cache
         if (state.domainCache) domainCache = state.domainCache;
 
-        // Restore last search area rectangle on map
-        if (state.lastBounds) {
-            MapManager.restoreRectangle(state.lastBounds);
-        }
-
-        // Restore previous results
         if (state.addresses && state.addresses.length > 0) {
             currentAddresses = state.addresses;
             buildDomainIndex();
@@ -100,7 +77,7 @@ const App = (() => {
                 UI.showStatus(`Restored ${currentAddresses.length} addresses. ${active} active, ${registered} registered domains.`);
             } else {
                 UI.renderResults(currentAddresses);
-                UI.showStatus(`Restored ${currentAddresses.length} addresses. Click "Check All Domains" to check.`);
+                UI.showStatus(`Restored ${currentAddresses.length} addresses. Click "Search All Domains" to check.`);
             }
         }
     }
@@ -127,45 +104,33 @@ const App = (() => {
     }
 
     /**
-     * Handle the main search flow:
-     * 1. Get addresses in selected area
-     * 2. Generate domain variations
-     * 3. Optionally auto-check domains
+     * Handle the main search flow.
      */
     async function handleSearch() {
-        const bounds = MapManager.getSelectionBounds();
-        if (!bounds) {
-            UI.showStatus('Please draw an area on the map first.');
-            return;
-        }
-
         const maxResults = parseInt(document.getElementById('max-results').value, 10);
         const autoCheck = document.getElementById('auto-check-domains').checked;
 
-        // Disable search button during search
         const searchBtn = document.getElementById('search-btn');
         searchBtn.disabled = true;
-        searchBtn.textContent = 'Searching...';
+        searchBtn.textContent = 'Loading...';
 
         UI.hideResults();
-        UI.showStatus('Starting search...');
+        UI.showStatus('Loading property database...');
         UI.updateProgress(0, 0);
 
         try {
-            // Step 1: Fetch addresses
-            const addresses = await SFData.getAddressesInArea(bounds, maxResults, (msg) => {
+            const addresses = await SFData.getAddressesInArea(null, maxResults, (msg) => {
                 UI.showStatus(msg);
             });
 
             if (addresses.length === 0) {
-                UI.showStatus('No single-family homes found in the selected area.');
+                UI.showStatus('No properties found.');
                 UI.renderResults([]);
                 return;
             }
 
-            UI.showStatus(`Found ${addresses.length} addresses. Generating domain variations...`);
+            UI.showStatus(`Loaded ${addresses.length} properties. Generating domain variations...`);
 
-            // Step 2: Generate domain variations for each address
             currentAddresses = addresses;
             allDomainVariations = [];
             domainIndexMap = {};
@@ -183,37 +148,32 @@ const App = (() => {
                 });
             });
 
-            // Step 3: Render results
             UI.renderResults(addresses);
 
-            // Add markers to map
-            MapManager.addAddressMarkers(addresses);
-
             const totalDomains = allDomainVariations.length;
-            UI.showStatus(`Generated ${totalDomains} domain variations for ${addresses.length} addresses.`);
+            UI.showStatus(`${addresses.length} properties, ${totalDomains} domain variations.`);
 
-            // Step 4: Auto-check domains if enabled
             if (autoCheck) {
                 await runDomainChecks();
             } else {
                 saveState();
                 UI.showStatus(
-                    `${addresses.length} addresses found with ${totalDomains} domain variations. ` +
+                    `${addresses.length} properties with ${totalDomains} domain variations. ` +
                     `Click "Check All Domains" to start checking.`
                 );
             }
 
         } catch (err) {
             console.error('Search error:', err);
-            UI.showStatus(`Error: ${err.message}. Check the console for details.`);
+            UI.showStatus(`Error: ${err.message}`);
         } finally {
             searchBtn.disabled = false;
-            searchBtn.innerHTML = '<span class="btn-icon">&#x1F50D;</span> Search Selected Area';
+            searchBtn.innerHTML = '<span class="btn-icon">&#x1F50D;</span> Search All Domains';
         }
     }
 
     /**
-     * Run domain registration checks for all generated variations.
+     * Run domain registration checks.
      * Uses cached results for domains already checked in a prior session.
      */
     async function runDomainChecks() {
@@ -222,7 +182,7 @@ const App = (() => {
         let activeDomains = 0;
         let registeredDomains = 0;
 
-        // Apply cached results first, collect unchecked domains
+        // Apply cached results first
         const domainsToCheck = [];
         for (const domain of allDomainVariations) {
             const mapping = domainIndexMap[domain];
@@ -233,7 +193,6 @@ const App = (() => {
 
             const cached = domainCache[domain];
             if (cached && (cached.status === 'active' || cached.status === 'registered')) {
-                // Use cached result
                 Object.assign(variation, cached);
                 if (cached.status === 'active') activeDomains++;
                 if (cached.status === 'registered') registeredDomains++;
@@ -250,7 +209,7 @@ const App = (() => {
             document.getElementById('show-all-btn').hidden = false;
             document.getElementById('show-all-btn').textContent = 'Show All Addresses';
             UI.showStatus(
-                `All ${allDomainVariations.length} domains already cached. ` +
+                `All ${allDomainVariations.length} domains cached. ` +
                 `${activeDomains} active, ${registeredDomains} registered.`
             );
             return;
@@ -261,14 +220,11 @@ const App = (() => {
 
         await Domains.checkDomainsBatch(
             domainsToCheck,
-            // onResult callback
             (result, index) => {
                 const mapping = domainIndexMap[result.domain];
                 if (!mapping) return;
-
                 const { addrIdx, domainIdx } = mapping;
 
-                // Update the address object
                 if (currentAddresses[addrIdx] &&
                     currentAddresses[addrIdx].domainVariations[domainIdx]) {
                     Object.assign(
@@ -277,7 +233,6 @@ const App = (() => {
                     );
                 }
 
-                // Cache registered/active results
                 if (result.status === 'active' || result.status === 'registered') {
                     domainCache[result.domain] = {
                         status: result.status,
@@ -288,18 +243,11 @@ const App = (() => {
                     };
                 }
 
-                // Update UI
                 UI.updateDomainStatus(addrIdx, domainIdx, result);
 
-                if (result.status === 'active') {
-                    activeDomains++;
-                    MapManager.highlightMarker(currentAddresses[addrIdx]);
-                }
-                if (result.status === 'registered') {
-                    registeredDomains++;
-                }
+                if (result.status === 'active') activeDomains++;
+                if (result.status === 'registered') registeredDomains++;
             },
-            // onProgress callback
             (completed, total) => {
                 UI.updateProgress(completed, total);
                 UI.showStatus(
@@ -308,51 +256,28 @@ const App = (() => {
                     (activeDomains > 0 ? ` | ${activeDomains} active` : '') +
                     (registeredDomains > 0 ? ` | ${registeredDomains} registered` : '')
                 );
-                // Save progress periodically so tab close doesn't lose work
                 if (completed % 20 === 0) saveState();
             }
         );
 
-        // Persist state
         saveState();
 
-        // Re-render sorted/filtered: only show addresses with domains
         UI.renderResults(currentAddresses, { filterRegistered: true });
 
-        // Show the toggle button
         const showAllBtn = document.getElementById('show-all-btn');
         showAllBtn.hidden = false;
         showAllBtn.textContent = 'Show All Addresses';
 
         UI.showStatus(
             `Done! ${activeDomains} active, ${registeredDomains} registered. ` +
-            `Showing addresses with domains (sorted by newest registration).`
+            `Sorted by newest registration date.`
         );
     }
 
-    /**
-     * Handle "Check All Domains" button.
-     */
     async function handleCheckAll() {
         await runDomainChecks();
     }
 
-    /**
-     * Handle clearing the map selection.
-     */
-    function handleClear() {
-        MapManager.clearSelection();
-        Domains.cancelChecking();
-        UI.hideResults();
-        UI.hideStatus();
-        currentAddresses = [];
-        allDomainVariations = [];
-        domainIndexMap = {};
-    }
-
-    /**
-     * Toggle between showing only addresses with domains vs all.
-     */
     function handleShowAll() {
         const btn = document.getElementById('show-all-btn');
         if (btn.textContent.includes('Show All')) {
@@ -364,9 +289,6 @@ const App = (() => {
         }
     }
 
-    /**
-     * Handle CSV export.
-     */
     function handleExport() {
         if (currentAddresses.length === 0) return;
         UI.exportCSV(currentAddresses);
@@ -379,10 +301,5 @@ const App = (() => {
         init();
     }
 
-    return {
-        handleSearch,
-        handleClear,
-        handleCheckAll,
-        handleExport
-    };
+    return { handleSearch, handleCheckAll, handleExport };
 })();

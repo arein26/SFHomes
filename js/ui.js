@@ -126,6 +126,14 @@ const UI = (() => {
     }
 
     /**
+     * Format a number as currency.
+     */
+    function fmtPrice(n) {
+        if (!n) return '—';
+        return '$' + n.toLocaleString();
+    }
+
+    /**
      * Create a single address card element.
      */
     function createAddressCard(addr, idx) {
@@ -144,10 +152,15 @@ const UI = (() => {
         header.onclick = () => toggleCard(card);
 
         const leftSide = document.createElement('div');
+        leftSide.className = 'address-left';
+
+        const topRow = document.createElement('div');
+        topRow.className = 'address-top-row';
+
         const nameSpan = document.createElement('span');
         nameSpan.className = 'address-name';
         nameSpan.textContent = addr.fullAddress;
-        leftSide.appendChild(nameSpan);
+        topRow.appendChild(nameSpan);
 
         // Zillow link
         const zillowLink = document.createElement('a');
@@ -156,15 +169,8 @@ const UI = (() => {
         zillowLink.target = '_blank';
         zillowLink.rel = 'noopener';
         zillowLink.textContent = 'Zillow';
-        zillowLink.onclick = (e) => e.stopPropagation(); // don't toggle card
-        leftSide.appendChild(zillowLink);
-
-        if (addr.neighborhood) {
-            const meta = document.createElement('span');
-            meta.className = 'address-meta';
-            meta.textContent = addr.neighborhood;
-            leftSide.appendChild(meta);
-        }
+        zillowLink.onclick = (e) => e.stopPropagation();
+        topRow.appendChild(zillowLink);
 
         // Show newest registration date on card header
         const newest = newestRegistrationDate(addr);
@@ -172,7 +178,43 @@ const UI = (() => {
             const dateMeta = document.createElement('span');
             dateMeta.className = 'address-meta address-reg-date';
             dateMeta.textContent = 'Reg: ' + newest.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            leftSide.appendChild(dateMeta);
+            topRow.appendChild(dateMeta);
+        }
+
+        leftSide.appendChild(topRow);
+
+        // Property details row
+        const detailParts = [];
+        if (addr.beds) detailParts.push(`${addr.beds}bd`);
+        const baths = (addr.fullBaths || 0) + (addr.halfBaths ? addr.halfBaths * 0.5 : 0);
+        if (baths) detailParts.push(`${baths}ba`);
+        if (addr.sqft) detailParts.push(`${addr.sqft.toLocaleString()} sqft`);
+        if (addr.yearBuilt) detailParts.push(`Built ${addr.yearBuilt}`);
+        if (addr.lotAcres && addr.lotAcres > 0) detailParts.push(`${addr.lotAcres} ac lot`);
+        if (addr.garageSpaces) detailParts.push(`${addr.garageSpaces} car`);
+
+        if (detailParts.length > 0) {
+            const detailRow = document.createElement('div');
+            detailRow.className = 'property-details';
+            detailRow.textContent = detailParts.join(' · ');
+            leftSide.appendChild(detailRow);
+        }
+
+        // Price row
+        const priceParts = [];
+        if (addr.closePrice) {
+            priceParts.push(`Sold: ${fmtPrice(addr.closePrice)}`);
+            if (addr.closeDate) priceParts.push(`(${addr.closeDate})`);
+        } else if (addr.listPrice) {
+            priceParts.push(`List: ${fmtPrice(addr.listPrice)}`);
+        }
+        if (addr.pricePerSqft) priceParts.push(`${fmtPrice(addr.pricePerSqft)}/sqft`);
+
+        if (priceParts.length > 0) {
+            const priceRow = document.createElement('div');
+            priceRow.className = 'property-price';
+            priceRow.textContent = priceParts.join(' · ');
+            leftSide.appendChild(priceRow);
         }
 
         const rightSide = document.createElement('div');

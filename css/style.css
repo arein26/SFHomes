@@ -328,9 +328,34 @@ main {
     background: #fafbfc;
 }
 
+.address-left {
+    flex: 1;
+    min-width: 0;
+}
+
+.address-top-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .address-name {
     font-weight: 600;
     font-size: 0.9375rem;
+}
+
+.property-details {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.property-price {
+    font-size: 0.75rem;
+    color: var(--text);
+    font-weight: 500;
+    margin-top: 1px;
 }
 
 .address-meta {

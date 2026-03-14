@@ -4,37 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SF Home Domain Scout</title>
-
-    <!-- Leaflet -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-    <!-- Leaflet Draw -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-
-    <link rel="stylesheet" href="css/style.css?v=10">
+    <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
     <header>
         <div class="header-content">
             <h1>SF Home Domain Scout</h1>
-            <p class="subtitle">Discover registered domains for San Francisco single-family home addresses</p>
+            <p class="subtitle">Domain search for 2,200+ SF single-family homes — N of Market, E of Arguello, W of Van Ness</p>
         </div>
     </header>
 
     <main>
-        <section id="map-section">
-            <div id="map"></div>
-            <div id="map-overlay" class="map-overlay">
-                <span>Draw a rectangle on the map to select a search area</span>
-            </div>
-        </section>
-
         <section id="controls-section">
             <div class="controls-row">
-                <button id="search-btn" class="btn btn-primary" disabled>
-                    <span class="btn-icon">&#x1F50D;</span> Search Selected Area
+                <button id="search-btn" class="btn btn-primary">
+                    <span class="btn-icon">&#x1F50D;</span> Search All Domains
                 </button>
-                <button id="clear-btn" class="btn btn-secondary" disabled>Clear Selection</button>
 
                 <div class="control-info">
                     <label>
@@ -42,12 +27,12 @@
                         Auto-check domains
                     </label>
                     <label>
-                        Max results:
+                        Max addresses:
                         <select id="max-results">
-                            <option value="50">50</option>
-                            <option value="100" selected>100</option>
-                            <option value="200">200</option>
+                            <option value="100">100</option>
                             <option value="500">500</option>
+                            <option value="1000">1000</option>
+                            <option value="2500" selected>All</option>
                         </select>
                     </label>
                 </div>
@@ -86,21 +71,13 @@
     </main>
 
     <footer>
-        <p>Data sourced from <a href="https://data.sfgov.org" target="_blank" rel="noopener">SF Open Data (DataSF)</a>.
-        Domain checks via RDAP &amp; DNS-over-HTTPS. For informational purposes only.</p>
+        <p>Property data from ZenList. Domain checks via RDAP &amp; DNS-over-HTTPS. For informational purposes only.</p>
     </footer>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <!-- Leaflet Draw JS -->
-    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
-
-    <script src="js/config.js?v=10"></script>
-    <script src="js/map.js?v=10"></script>
-    <script src="js/sfdata.js?v=10"></script>
-    <script src="js/domains.js?v=10"></script>
-    <script src="js/ui.js?v=10"></script>
-    <script src="js/app.js?v=10"></script>
+    <script src="js/config.js?v=11"></script>
+    <script src="js/sfdata.js?v=11"></script>
+    <script src="js/domains.js?v=11"></script>
+    <script src="js/ui.js?v=11"></script>
+    <script src="js/app.js?v=11"></script>
 </body>
 </html>
