@@ -4,6 +4,7 @@
  */
 const App = (() => {
     const STORAGE_KEY = 'sfDomainScout';
+    const STORAGE_VERSION = 2; // bump to invalidate old cached sessions
 
     let currentAddresses = [];
     let allDomainVariations = []; // flat list for batch checking
@@ -15,7 +16,14 @@ const App = (() => {
     function loadState() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
-            return raw ? JSON.parse(raw) : null;
+            if (!raw) return null;
+            const state = JSON.parse(raw);
+            // Invalidate stale cache from older code versions
+            if (state.version !== STORAGE_VERSION) {
+                localStorage.removeItem(STORAGE_KEY);
+                return null;
+            }
+            return state;
         } catch (_) { return null; }
     }
 
@@ -23,6 +31,7 @@ const App = (() => {
         try {
             const bounds = MapManager.getSelectionBounds();
             const state = {
+                version: STORAGE_VERSION,
                 lastBounds: bounds,
                 addresses: currentAddresses,
                 domainCache

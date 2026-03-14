@@ -31,13 +31,14 @@ const Domains = (() => {
         const variations = new Set();
 
         for (const tld of Config.domains.tlds) {
-            // Most common patterns only
-            variations.add(`${num}${street}${tld}`);          // 1705Gough.com
+            variations.add(`${num}${street}${tld}`);               // 1705Gough.com
             if (suffix) {
                 variations.add(`${num}${street}${suffix}${tld}`);  // 1705GoughSt.com
+                variations.add(`${num}-${street}-${suffix}${tld}`);// 1705-Gough-St.com
             }
-            variations.add(`${num}${street}SF${tld}`);         // 1705GoughSF.com
-            variations.add(`${num}-${street}${tld}`);          // 1705-Gough.com
+            variations.add(`${num}${street}SF${tld}`);             // 1705GoughSF.com
+            variations.add(`${num}-${street}${tld}`);              // 1705-Gough.com
+            variations.add(`${num}-${street}-SF${tld}`);           // 1705-Gough-SF.com
         }
 
         return [...variations];
@@ -78,7 +79,7 @@ const Domains = (() => {
             const dnsResult = await checkViaDNS(domain);
 
             if (dnsResult.status === 'active') {
-                // Phase 2: RDAP for registration details (only for active domains)
+                // Has DNS A records — do RDAP for registration details
                 if (domain.endsWith('.com')) {
                     try {
                         const rdapResult = await checkViaRDAP(domain);
@@ -92,7 +93,22 @@ const Domains = (() => {
                 return dnsResult;
             }
 
-            // No DNS = not interesting (either not registered or parked with no DNS)
+            if (dnsResult.status === 'no_a_records') {
+                // Domain exists in DNS but no A records — likely registered.
+                // Do RDAP to confirm and get registration details.
+                if (domain.endsWith('.com')) {
+                    try {
+                        const rdapResult = await checkViaRDAP(domain);
+                        if (rdapResult.status !== 'error') {
+                            return rdapResult;
+                        }
+                    } catch (_) { /* RDAP failed */ }
+                }
+                dnsResult.status = 'registered';
+                return dnsResult;
+            }
+
+            // NXDOMAIN or other — domain doesn't exist
             dnsResult.status = 'available';
             return dnsResult;
 
@@ -201,8 +217,8 @@ const Domains = (() => {
 
             const data = await response.json();
 
-            // Status 0 = NOERROR (domain exists)
-            // Status 3 = NXDOMAIN (domain not found)
+            // Status 0 = NOERROR (domain exists in DNS)
+            // Status 3 = NXDOMAIN (domain not found at all)
             if (data.Status === 0 && data.Answer && data.Answer.length > 0) {
                 result.status = 'active';
                 result.dnsRecords = data.Answer.map(a => ({
@@ -210,11 +226,12 @@ const Domains = (() => {
                     data: a.data
                 }));
             } else if (data.Status === 3) {
-                // NXDOMAIN - domain does not exist in DNS
-                // This means it's either not registered or registered but has no DNS
-                result.status = 'no_dns';
+                // NXDOMAIN - domain truly does not exist
+                result.status = 'nxdomain';
+            } else if (data.Status === 0) {
+                // NOERROR but no A records - domain exists, likely registered
+                result.status = 'no_a_records';
             } else {
-                // Has DNS entry but no A records
                 result.status = 'no_dns';
             }
 
