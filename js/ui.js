@@ -205,10 +205,11 @@ const UI = (() => {
         if (addr.closePrice) {
             priceParts.push(`Sold: ${fmtPrice(addr.closePrice)}`);
             if (addr.closeDate) priceParts.push(`(${addr.closeDate})`);
+            if (addr.soldPricePerSqft) priceParts.push(`${fmtPrice(addr.soldPricePerSqft)}/sqft`);
         } else if (addr.listPrice) {
             priceParts.push(`List: ${fmtPrice(addr.listPrice)}`);
+            if (addr.pricePerSqft) priceParts.push(`${fmtPrice(addr.pricePerSqft)}/sqft`);
         }
-        if (addr.pricePerSqft) priceParts.push(`${fmtPrice(addr.pricePerSqft)}/sqft`);
 
         if (priceParts.length > 0) {
             const priceRow = document.createElement('div');

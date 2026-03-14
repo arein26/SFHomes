@@ -31,14 +31,27 @@ const Domains = (() => {
         const variations = new Set();
 
         for (const tld of Config.domains.tlds) {
-            variations.add(`${num}${street}${tld}`);               // 1705Gough.com
+            // Core variations
+            variations.add(`${num}${street}${tld}`);                // 1705Gough.com
+            variations.add(`${num}-${street}${tld}`);               // 1705-Gough.com
             if (suffix) {
-                variations.add(`${num}${street}${suffix}${tld}`);  // 1705GoughSt.com
-                variations.add(`${num}-${street}-${suffix}${tld}`);// 1705-Gough-St.com
+                variations.add(`${num}${street}${suffix}${tld}`);   // 1705GoughSt.com
+                variations.add(`${num}-${street}-${suffix}${tld}`); // 1705-Gough-St.com
             }
-            variations.add(`${num}${street}SF${tld}`);             // 1705GoughSF.com
-            variations.add(`${num}-${street}${tld}`);              // 1705-Gough.com
-            variations.add(`${num}-${street}-SF${tld}`);           // 1705-Gough-SF.com
+            variations.add(`${num}${street}SF${tld}`);              // 1705GoughSF.com
+            variations.add(`${num}-${street}-SF${tld}`);            // 1705-Gough-SF.com
+
+            // Additional variations
+            variations.add(`${num}${street}SanFrancisco${tld}`);    // 1705GoughSanFrancisco.com
+            variations.add(`${num}${street}Home${tld}`);            // 1705GoughHome.com
+            variations.add(`${num}${street}House${tld}`);           // 1705GoughHouse.com
+            if (suffix) {
+                variations.add(`${num}${street}${suffix}SF${tld}`); // 1705GoughStSF.com
+            }
+            // Lowercase street with dashes
+            const streetLower = street.toLowerCase();
+            variations.add(`${num}${streetLower}${tld}`);           // 1705gough.com
+            variations.add(`${num}-${streetLower}${tld}`);          // 1705-gough.com
         }
 
         return [...variations];

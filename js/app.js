@@ -4,12 +4,13 @@
  */
 const App = (() => {
     const STORAGE_KEY = 'sfDomainScout';
-    const STORAGE_VERSION = 3; // bump to invalidate old cached sessions
+    const STORAGE_VERSION = 4; // bump to invalidate old cached sessions
 
     let currentAddresses = [];
     let allDomainVariations = []; // flat list for batch checking
     let domainIndexMap = {};      // domain -> { addrIdx, domainIdx }
     let domainCache = {};         // domain -> check result (persisted)
+    let knownDomains = {};        // address -> { domain, status, registrar, registrationDate, ... }
 
     // ── localStorage helpers ──
 
@@ -31,7 +32,8 @@ const App = (() => {
             const state = {
                 version: STORAGE_VERSION,
                 addresses: currentAddresses,
-                domainCache
+                domainCache,
+                knownDomains
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         } catch (_) { /* quota exceeded, etc. */ }
@@ -59,6 +61,7 @@ const App = (() => {
         if (!state) return;
 
         if (state.domainCache) domainCache = state.domainCache;
+        if (state.knownDomains) knownDomains = state.knownDomains;
 
         if (state.addresses && state.addresses.length > 0) {
             currentAddresses = state.addresses;
@@ -104,6 +107,40 @@ const App = (() => {
     }
 
     /**
+     * Check if a known domain should be re-checked (registered in last 6 months).
+     */
+    function shouldRecheck(known) {
+        if (!known.registrationDate) return false;
+        if (known.status === 'active') return false; // already live, no need
+        const regDate = new Date(known.registrationDate);
+        const sixMonthsAgo = new Date();
+        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        return regDate > sixMonthsAgo;
+    }
+
+    /**
+     * After checking, save any newly found domains to knownDomains.
+     */
+    function updateKnownDomains() {
+        for (const addr of currentAddresses) {
+            if (knownDomains[addr.fullAddress]) continue; // already known
+            const found = (addr.domainVariations || []).find(
+                v => v.status === 'active' || v.status === 'registered'
+            );
+            if (found) {
+                knownDomains[addr.fullAddress] = {
+                    domain: found.domain,
+                    status: found.status,
+                    registrar: found.registrar,
+                    registrationDate: found.registrationDate,
+                    expirationDate: found.expirationDate,
+                    hasActiveDNS: found.hasActiveDNS
+                };
+            }
+        }
+    }
+
+    /**
      * Handle the main search flow.
      */
     async function handleSearch() {
@@ -136,6 +173,26 @@ const App = (() => {
             domainIndexMap = {};
 
             addresses.forEach((addr, addrIdx) => {
+                const known = knownDomains[addr.fullAddress];
+                if (known) {
+                    // Property has a known found domain — only show that one
+                    addr.domainVariations = [{
+                        domain: known.domain,
+                        status: known.status,
+                        registrar: known.registrar,
+                        registrationDate: known.registrationDate,
+                        expirationDate: known.expirationDate,
+                        hasActiveDNS: known.hasActiveDNS
+                    }];
+                    // If registered in last 6 months, still re-check for website going live
+                    if (shouldRecheck(known)) {
+                        allDomainVariations.push(known.domain);
+                        domainIndexMap[known.domain] = { addrIdx, domainIdx: 0 };
+                    }
+                    return;
+                }
+
+                // No known domain — generate all variations
                 const domains = Domains.generateVariations(addr);
                 addr.domainVariations = domains.map(d => ({
                     domain: d,
@@ -177,7 +234,16 @@ const App = (() => {
      * Uses cached results for domains already checked in a prior session.
      */
     async function runDomainChecks() {
-        if (allDomainVariations.length === 0) return;
+        if (allDomainVariations.length === 0) {
+            // All domains are known — just show results
+            const active = countByStatus('active');
+            const registered = countByStatus('registered');
+            UI.renderResults(currentAddresses, { filterRegistered: true });
+            document.getElementById('show-all-btn').hidden = false;
+            document.getElementById('show-all-btn').textContent = 'Show All Addresses';
+            UI.showStatus(`All domains known. ${active} active, ${registered} registered.`);
+            return;
+        }
 
         let activeDomains = 0;
         let registeredDomains = 0;
@@ -260,6 +326,25 @@ const App = (() => {
             }
         );
 
+        // Save newly found domains to knownDomains and update any re-checked ones
+        updateKnownDomains();
+        // Update known domains that were re-checked (status may have changed)
+        for (const addr of currentAddresses) {
+            const known = knownDomains[addr.fullAddress];
+            if (!known) continue;
+            const variation = (addr.domainVariations || []).find(v => v.domain === known.domain);
+            if (variation && variation.status !== 'unchecked') {
+                knownDomains[addr.fullAddress] = {
+                    domain: variation.domain,
+                    status: variation.status,
+                    registrar: variation.registrar || known.registrar,
+                    registrationDate: variation.registrationDate || known.registrationDate,
+                    expirationDate: variation.expirationDate || known.expirationDate,
+                    hasActiveDNS: variation.hasActiveDNS
+                };
+            }
+        }
+
         saveState();
 
         UI.renderResults(currentAddresses, { filterRegistered: true });
@@ -268,9 +353,11 @@ const App = (() => {
         showAllBtn.hidden = false;
         showAllBtn.textContent = 'Show All Addresses';
 
+        const recentCount = Object.values(knownDomains).filter(k => shouldRecheck(k)).length;
         UI.showStatus(
-            `Done! ${activeDomains} active, ${registeredDomains} registered. ` +
-            `Sorted by newest registration date.`
+            `Done! ${activeDomains} active, ${registeredDomains} registered.` +
+            (recentCount > 0 ? ` ${recentCount} recent domains being monitored.` : '') +
+            ` Sorted by newest registration date.`
         );
     }
 
